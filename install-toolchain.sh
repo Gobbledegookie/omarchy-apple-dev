@@ -60,17 +60,21 @@ python3 -m venv "$VENV"
 "$VENV/bin/pip" show pymobiledevice3 | sed -n 's/^Version: /pymobiledevice3 /p'
 
 echo "== 6. iOS SDK source =="
-# xtool sdk install accepts an Xcode.xip OR an extracted Xcode.app directory.
-# Pick ONE of the routes below.
+# The SDK artifacts exist only inside Apple's Xcode distribution; there is no
+# standalone iOS SDK download. The public route needs no Mac and no macOS
+# anywhere: download Xcode.xip from Apple on any OS, hand the file to this
+# script. (An already-extracted Xcode.app tree also works via SDK_SRC.)
+echo "-- Route A (default): Xcode.xip downloaded from Apple --"
+# 1. Sign in at https://developer.apple.com/download/all/?q=Xcode (free Apple ID)
+# 2. Download an Xcode 26.x .xip — its Swift must match swift-bin (26.x for
+#    6.3.3; Xcode 27's SDK is rejected — FINDINGS.md items 15-16)
+# 3. Re-run:  XCODE_XIP=/path/to/Xcode.xip $0
 
-echo "-- Route A: Xcode.app directory streamed from a Mac with Xcode --"
-# On the Mac, only these pieces are needed (about 3 GB):
-#   Contents/Developer/Toolchains/XcodeDefault.xctoolchain/usr/lib/{swift,swift_static,clang}
-#   Contents/Developer/Platforms/{iPhoneOS,MacOSX,iPhoneSimulator}.platform/Developer/{SDKs,Library,usr/lib}
-# Stream from an Xcode whose Swift matches the installed swift-bin (Xcode 26.x
-# for swift 6.3.3): a newer Xcode's swiftmodules are rejected by the compiler
-# (FINDINGS.md item 16).
-# From a host that can SSH to the Mac:
+echo "-- Route B (optional): an extracted Xcode.app tree --"
+# If you already have a Mac with a matching Xcode, only these pieces are
+# needed (about 3 GB) in $SDK_SRC/Xcode.app/Contents/Developer:
+#   Toolchains/XcodeDefault.xctoolchain/usr/lib/{swift,swift_static,clang}
+#   Platforms/{iPhoneOS,MacOSX,iPhoneSimulator}.platform/Developer/{SDKs,Library,usr/lib}
 #   ssh MAC_HOST 'cd /Applications/Xcode.app/Contents/Developer && tar -cf - \
 #     Toolchains/XcodeDefault.xctoolchain/usr/lib/swift \
 #     Toolchains/XcodeDefault.xctoolchain/usr/lib/swift_static \
@@ -86,26 +90,30 @@ echo "-- Route A: Xcode.app directory streamed from a Mac with Xcode --"
 #     Platforms/iPhoneSimulator.platform/Developer/usr/lib' \
 #   | tar -xf - -C "$SDK_SRC/Xcode.app/Contents/Developer"
 
-echo "-- Route B: Xcode.xip from developer.apple.com --"
-# Download from https://developer.apple.com/download/all/?q=Xcode (Apple ID
-# required), then either re-run this script as XCODE_XIP=/path/to/Xcode.xip
-# or point xtool sdk install at the .xip path directly.
-
 echo "== 7. Darwin SDK registration =="
-# IMPORTANT: the Swift toolchain's own clang must come first in PATH.
+# IMPORTANT: The Swift toolchain's own clang must come first in PATH.
 # A system clang of a different version causes __builtin_bit_cast size errors
 # when compiling SwiftUI against the SDK.
 export PATH="$SWIFT_BIN_DIR:$PATH"
 if swift sdk list 2>/dev/null | grep -q darwin; then
   echo "Darwin SDK already registered; skipping install."
-elif [ -d "$SDK_SRC/Xcode.app" ]; then
-  "$HOME/.local/bin/xtool" sdk install "$SDK_SRC/Xcode.app"
 elif [ -n "${XCODE_XIP:-}" ] && [ -f "$XCODE_XIP" ]; then
   "$HOME/.local/bin/xtool" sdk install "$XCODE_XIP"
+elif [ -d "$SDK_SRC/Xcode.app" ]; then
+  "$HOME/.local/bin/xtool" sdk install "$SDK_SRC/Xcode.app"
 else
-  echo "ERROR: no SDK source found. Either stream Xcode pieces into"
-  echo "  $SDK_SRC/Xcode.app   (see section 6, Route A)"
-  echo "or download Xcode.xip and re-run as:  XCODE_XIP=/path/to/Xcode.xip $0"
+  echo
+  echo "==================================================================="
+  echo " One download left: the iOS SDK comes from Apple, inside Xcode.xip."
+  echo " No Mac needed — the download works from any OS with a browser."
+  echo
+  echo " 1. Sign in (free Apple ID):"
+  echo "      https://developer.apple.com/download/all/?q=Xcode"
+  echo " 2. Download Xcode 26.x (.xip) — NOT 27 (SDK/toolchain must match:"
+  echo "      Xcode 26.x pairs with swift-bin 6.3.3; see FINDINGS.md 15-16)."
+  echo " 3. Re-run:"
+  echo "      XCODE_XIP=/path/to/Xcode.xip $0"
+  echo "==================================================================="
   exit 1
 fi
 swift sdk list   # must print: darwin

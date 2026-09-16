@@ -24,35 +24,40 @@ Works with a free Apple ID. Paid membership not required for device installs.
   architectures are covered: AUR `swift-bin` ships aarch64 and x86_64, and
   xtool publishes an AppImage for each.
 - An iOS device and a USB cable.
-- One of:
-  - A Mac with Xcode installed (any host on your network that you can SSH
-    into), or
-  - `Xcode.xip` downloaded from developer.apple.com (requires an Apple ID).
-
+- An Apple ID (free) for **one download from Apple**: `Xcode.xip` from
+  developer.apple.com. The download works from any OS — no Mac, no macOS
+  install, and no Xcode install anywhere is needed. The iOS SDK artifacts
+  exist only inside Apple's Xcode distribution, so this one download is the
+  only external requirement that cannot be automated away.
 
 Version matching matters: the SDK pieces must come from an Xcode whose Swift
 matches the installed `swift-bin` (Xcode 26.x for swift 6.3.3 — see
 FINDINGS.md item 16), and swift-bin 6.4.0 is not yet usable (item 15).
-
-`xtool sdk install` accepts a path to an `Xcode.xip` **or an extracted
-`Xcode.app` directory**. The directory route avoids the multi-GB download.
+Download **Xcode 26.x, not 27**.
 
 ## Install
 
-Run `install-toolchain.sh`. It installs the toolchain, applies the SDK-install
-workarounds (toolchain-tree ownership, toolchain clang first on PATH), and
-registers the SDK if source material is present. Safe to re-run. Give it SDK
-material by one of:
+```
+git clone https://github.com/joshuaswarren/omarchy-apple-dev
+cd omarchy-apple-dev
+./install-toolchain.sh
+```
 
-- Directory route: stream only the pieces xtool needs from a Mac with Xcode
-  (see the script, section 6) into `~/xcode-apple-sdk-src/Xcode.app`, then
-  re-run the script. A tree anywhere else works too: run it as
-  `SDK_SRC=/path/to/dir ./install-toolchain.sh`.
-- XIP route: download `Xcode.xip` from
-  https://developer.apple.com/download/all/?q=Xcode and re-run the script as
-  `XCODE_XIP=/path/to/Xcode.xip ./install-toolchain.sh`.
+The script installs the toolchain, applies the SDK-install workarounds
+(toolchain-tree ownership, toolchain clang first on PATH), and tells you
+exactly what is left if anything is. Safe to re-run. When it stops at the SDK
+step, download `Xcode 26.x .xip` from
+https://developer.apple.com/download/all/?q=Xcode and re-run:
+
+```
+XCODE_XIP=/path/to/Xcode.xip ./install-toolchain.sh
+```
 
 Verify with `swift sdk list` (should print `darwin`).
+
+Already have a Mac with a matching Xcode? You can stream just the ~3 GB of
+SDK pieces xtool needs instead of the full .xip — see Route B in
+`install-toolchain.sh` section 6. Optional; the .xip route above needs no Mac.
 
 ## First app
 
@@ -88,10 +93,10 @@ the tunneld bridge pattern pymobiledevice3 supports for that case.
 
 ## Findings
 
-[FINDINGS.md](FINDINGS.md) records the fifteen things that broke on the way to the
-first working run, with error text, root cause, and fix for each: SDK install
-failures, a clang version mismatch that breaks SwiftUI, and the four unstated
-prerequisites for debugging on iOS 17 and later.
+[FINDINGS.md](FINDINGS.md) records the sixteen findings behind the working
+run: what broke and how each was fixed (SDK install failures, a clang version
+mismatch that breaks SwiftUI, the unstated prerequisites for debugging on
+iOS 17+), plus the Swift/Xcode version matrix (items 15-16).
 
 ## Notes
 
