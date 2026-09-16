@@ -1,35 +1,65 @@
 #!/usr/bin/env bash
-# Install the iOS-on-Linux toolchain on Omarchy (Arch, aarch64).
-# Verified 2026-09-09: swift 6.3.3, xtool 1.19.0, lldb 21.0.0, pymobiledevice3.
-# Installs into user paths plus normal pacman/AUR packages. No system reinstalls.
+# Install the iOS-on-Linux toolchain on Omarchy (Arch, aarch64 or x86_64).
+# Verified 2026-09-09 on aarch64 (swift 6.3.3, xtool 1.19.0, lldb 21.0.0);
+# reported working on x86_64 the same week. Safe to re-run: pieces already
+# in place are skipped. Installs into user paths plus normal pacman/AUR
+# packages. No system reinstalls.
 set -euo pipefail
 
 SWIFT_BIN_DIR=/usr/lib/swift/bin
 VENV="$HOME/pymobile3-venv"
-SDK_SRC="$HOME/xcode-apple-sdk-src"
+SDK_SRC="${SDK_SRC:-$HOME/xcode-apple-sdk-src}"
 
 echo "== 1. usbmuxd (device multiplexer; udev starts it on plug) =="
 sudo pacman -S --needed --noconfirm usbmuxd
 # usbmuxd.service is static on Arch: it is triggered by udev, do not enable it.
 
-echo "== 2. Swift 6.3 toolchain (AUR binary package, includes lldb and clang) =="
+echo "== 2. Swift toolchain (AUR binary package: swift, clang, lldb) =="
 yay -S --needed --noconfirm swift-bin
-# lldb needs libpython3.9: the package lists python39 as an optional dep.
-sudo pacman -S --needed --noconfirm --asdeps python39 || yay -S --noconfirm python39
+# lldb links a specific libpython3.x, and swift-bin's own optional-dep note
+# names the right one (python39 through 6.3.x, python312 from 6.4). Install
+# whatever the installed package asks for; without it lldb fails to start
+# with "libpython3.9.so.1.0: cannot open shared object file".
+pydep=$(pacman -Qi swift-bin | grep -oE 'python3[0-9]+' | head -n1)
+if [ -n "$pydep" ]; then yay -S --needed --noconfirm --asdeps "$pydep"; fi
+# Known-bad combination (2026-09-16): Swift 6.4.0's SwiftPM cannot consume
+# the xtool darwin SDK bundle and every app build dies at planning with
+# "unable to find platform for 'iphoneos'". Swift 6.3.3 works. AUR swift-bin
+# tracks current releases, so warn when a 6.4+ toolchain landed.
+if swift --version 2>/dev/null | grep -q "Swift version 6.3"; then
+  : # proven-good toolchain line
+else
+  echo "WARNING: Swift 6.4+ cannot build against the xtool darwin SDK yet"
+  echo "  (see FINDINGS.md item 15). If your build later fails with"
+  echo "  'unable to find platform for iphoneos', build AUR swift-bin 6.3.3"
+  echo "  from the package's git history (git checkout the 6.3.3 commit in"
+  echo "  https://aur.archlinux.org/swift-bin.git, then makepkg) and reinstall."
+fi
 
-echo "== 3. xtool AppImage =="
+echo "== 3. Toolchain tree ownership (sudo; contents are not modified) =="
+# xtool's SDK install copies headers out of /usr/lib/clang and /usr/lib/swift
+# with swift-corelibs FileManager.copyItem, which preserves file ownership.
+# Copying a file as anyone but its owner dies partway with
+# NSCocoaErrorDomain Code=513, so both trees must belong to the user running
+notself=$(find /usr/lib/clang /usr/lib/swift ! \( -user "$USER" -a -group "$(id -gn)" \) -print -quit 2>/dev/null || true)
+if [ -n "$notself" ]; then
+  echo "Files in /usr/lib/clang or /usr/lib/swift are not owned by $USER."
+  echo "Taking ownership (sudo). No file contents change."
+  sudo chown -R "$USER:" /usr/lib/clang /usr/lib/swift
+fi
+
+echo "== 4. xtool AppImage (aarch64 and x86_64 releases) =="
 mkdir -p "$HOME/.local/bin"
 curl -fL "https://github.com/xtool-org/xtool/releases/latest/download/xtool-$(uname -m).AppImage" \
   -o "$HOME/.local/bin/xtool"
-chmod +x "$HOME/.local/bin/xtool"
 "$HOME/.local/bin/xtool" --version
 
-echo "== 4. pymobiledevice3 in a venv =="
+echo "== 5. pymobiledevice3 in a venv =="
 python3 -m venv "$VENV"
 "$VENV/bin/pip" install pymobiledevice3
-"$VENV/bin/pymobiledevice3" --version
+"$VENV/bin/pip" show pymobiledevice3 | sed -n 's/^Version: /pymobiledevice3 /p'
 
-echo "== 5. iOS SDK =="
+echo "== 6. iOS SDK source =="
 # xtool sdk install accepts an Xcode.xip OR an extracted Xcode.app directory.
 # Pick ONE of the routes below.
 
@@ -37,6 +67,9 @@ echo "-- Route A: Xcode.app directory streamed from a Mac with Xcode --"
 # On the Mac, only these pieces are needed (about 3 GB):
 #   Contents/Developer/Toolchains/XcodeDefault.xctoolchain/usr/lib/{swift,swift_static,clang}
 #   Contents/Developer/Platforms/{iPhoneOS,MacOSX,iPhoneSimulator}.platform/Developer/{SDKs,Library,usr/lib}
+# Stream from an Xcode whose Swift matches the installed swift-bin (Xcode 26.x
+# for swift 6.3.3): a newer Xcode's swiftmodules are rejected by the compiler
+# (FINDINGS.md item 16).
 # From a host that can SSH to the Mac:
 #   ssh MAC_HOST 'cd /Applications/Xcode.app/Contents/Developer && tar -cf - \
 #     Toolchains/XcodeDefault.xctoolchain/usr/lib/swift \
@@ -52,24 +85,35 @@ echo "-- Route A: Xcode.app directory streamed from a Mac with Xcode --"
 #     Platforms/iPhoneSimulator.platform/Developer/Library \
 #     Platforms/iPhoneSimulator.platform/Developer/usr/lib' \
 #   | tar -xf - -C "$SDK_SRC/Xcode.app/Contents/Developer"
-# (mkdir -p "$SDK_SRC/Xcode.app/Contents/Developer" first.)
 
 echo "-- Route B: Xcode.xip from developer.apple.com --"
 # Download from https://developer.apple.com/download/all/?q=Xcode (Apple ID
-# required), then point xtool sdk install at the .xip path directly.
+# required), then either re-run this script as XCODE_XIP=/path/to/Xcode.xip
+# or point xtool sdk install at the .xip path directly.
 
-echo "== 6. Darwin SDK registration =="
+echo "== 7. Darwin SDK registration =="
 # IMPORTANT: the Swift toolchain's own clang must come first in PATH.
 # A system clang of a different version causes __builtin_bit_cast size errors
 # when compiling SwiftUI against the SDK.
 export PATH="$SWIFT_BIN_DIR:$PATH"
-# Route A:
-"$HOME/.local/bin/xtool" sdk install "$SDK_SRC/Xcode.app" || true
-# Route B (comment the line above, uncomment this one):
-# "$HOME/.local/bin/xtool" sdk install "$HOME/Downloads/Xcode.xip"
-
+if swift sdk list 2>/dev/null | grep -q darwin; then
+  echo "Darwin SDK already registered; skipping install."
+elif [ -d "$SDK_SRC/Xcode.app" ]; then
+  "$HOME/.local/bin/xtool" sdk install "$SDK_SRC/Xcode.app"
+elif [ -n "${XCODE_XIP:-}" ] && [ -f "$XCODE_XIP" ]; then
+  "$HOME/.local/bin/xtool" sdk install "$XCODE_XIP"
+else
+  echo "ERROR: no SDK source found. Either stream Xcode pieces into"
+  echo "  $SDK_SRC/Xcode.app   (see section 6, Route A)"
+  echo "or download Xcode.xip and re-run as:  XCODE_XIP=/path/to/Xcode.xip $0"
+  exit 1
+fi
 swift sdk list   # must print: darwin
 
-echo "== 7. Apple ID sign-in (interactive, needed before device deploys) =="
+# If an app that failed against an earlier or broken SDK still fails now, the
+# stale module cache is the cause: delete that project's .build directory (or
+# build in a fresh copy of the project) and rebuild.
+
+echo "== 8. Apple ID sign-in (interactive, needed before device deploys) =="
 echo "Run: $HOME/.local/bin/xtool auth"
 echo "Done. Next: plug in the iPhone and run ./device-run.sh"

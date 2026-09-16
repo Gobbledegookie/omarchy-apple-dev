@@ -1,41 +1,101 @@
 #!/usr/bin/env bash
-# Run an xtool project on a USB-connected iPhone from Omarchy Linux.
+# Run an xtool project on an iPhone from Omarchy Linux.
 # Run this from inside your xtool project directory (the one with xtool.yml).
 # First run ever: do `xtool auth` once beforehand (interactive Apple ID sign-in).
+#
+# Modes:
+#   ./device-run.sh                        USB (default; the proven path)
+#   ./device-run.sh --network [--udid U]   WiFi, phone on the SAME network.
+#       UNVERIFIED (written without hardware). Expects: the phone paired over
+#       USB once before (the pairing record carries over), Developer Mode on,
+#       and both hosts on one LAN segment; xtool then discovers the phone the
+#       same way Xcode's wireless deploy does.
+#   ./device-run.sh --rsd HOST PORT PKG    UNVERIFIED: install+launch an
+#       already-signed .app/.ipa against an explicit RemoteServiceDiscovery
+#       address -- the only piece that can address a phone by IP (e.g. over
+#       Tailscale), and only if the phone exposes RSD on that interface.
+#       PKG must be signed with a real certificate: xtool's free-provisioning
+#       signing only happens inside `xtool dev run`.
+#
+# Tailscale: mDNS discovery does not cross tailscale0, and Apple's remoted
+# binds the phone's LAN interface, so a phone reachable only via Tailscale is
+# not directly deployable. The supported remote pattern is pymobiledevice3's
+# tunneld WebSocket bridge -- on a machine that CAN see the phone (USB or
+# same LAN):
+#     sudo pymobiledevice3 remote tunneld        # prints its WS port
+# then, from the remote host:
+#     pymobiledevice3 apps install PKG --tunnel UDID@BRIDGE_HOST:WS_PORT
+#     pymobiledevice3 developer core-device launch-application BID "" \
+#         --tunnel UDID@BRIDGE_HOST:WS_PORT
 set -euo pipefail
 export PATH="/usr/lib/swift/bin:$PATH"
 
 XT="$HOME/.local/bin/xtool"
 PMD3="$HOME/pymobile3-venv/bin/pymobiledevice3"
 
-echo "== 1. Device visible over USB? =="
-# usbmuxd is started by udev when a device is plugged in. Nothing to enable.
-lsusb | grep -i apple || echo "WARNING: no Apple USB device found by lsusb."
+MODE=usb; UDID=; RSD_HOST=; RSD_PORT=; PKG=
+while [ $# -gt 0 ]; do
+  case "$1" in
+    --network) MODE=network ;;
+    -u|--udid) UDID="${2:?--udid needs a value}"; shift ;;
+    --rsd) MODE=rsd
+      RSD_HOST="${2:?usage: --rsd HOST PORT PACKAGE}"
+      RSD_PORT="${3:?usage: --rsd HOST PORT PACKAGE}"
+      PKG="${4:?usage: --rsd HOST PORT PACKAGE}"
+      shift 3 ;;
+    *) echo "Unknown argument: $1 (modes: [--network] [--rsd HOST PORT PKG])" >&2; exit 2 ;;
+  esac
+  shift
+done
 
-echo "== 2. Trust and pair =="
-# The phone shows a 'Trust This Computer' prompt on first connect. Accept it.
-$PMD3 lockdown info >/dev/null 2>&1 \
-  && echo "Lockdown reachable, pairing OK." \
-  || { echo "Pairing needed: run '$PMD3 lockdown pair' and accept the prompt on the phone."; }
+UDID_ARGS=()
+if [ -n "$UDID" ]; then UDID_ARGS=(--udid "$UDID"); fi
 
-echo "== 3. List devices via xtool =="
-$XT devices
+case "$MODE" in
+usb)
+  echo "== 1. Device visible over USB? =="
+  # usbmuxd is started by udev when a device is plugged in. Nothing to enable.
+  lsusb | grep -i apple || echo "WARNING: no Apple USB device found by lsusb."
 
-echo "== 4. Build, sign, install, launch =="
-# xtool dev run does all four. Signing uses your Apple ID (free tier works);
-# the first deploy creates a free provisioning profile for your device.
-$XT dev run
+  echo "== 2. Trust and pair =="
+  # The phone shows a 'Trust This Computer' prompt on first connect. Accept it.
+  $PMD3 lockdown info >/dev/null 2>&1 \
+    && echo "Lockdown reachable, pairing OK." \
+    || { echo "Pairing needed: run '$PMD3 lockdown pair' and accept the prompt on the phone."; }
 
-echo "== 5. LLDB attach =="
-# The Swift toolchain lldb has the remote-ios platform. Attach workflow,
-# from an interactive lldb session (untested without hardware on the first
-# run; adjust as needed):
-#   lldb
-#   (lldb) platform select remote-ios
-#   (lldb) platform connect <lockdown service or connect:// URL printed by xtool>
-#   (lldb) process attach --name HelloOmarchy
-#   (lldb) b ContentView.swift:12
-#   (lldb) c
-# pymobiledevice3 can also reach the developer services:
-#   $PMD3 developer dvt lldb     # interactive DVT LLDB session (iOS 16 and below)
-#   $PMD3 remote tunneld         # RemoteXPC tunnel needed on iOS 17+
+  echo "== 3. List devices via xtool =="
+  $XT devices "${UDID_ARGS[@]}"
+
+  echo "== 4. Build, sign, install, launch =="
+  # xtool dev run does all four. Signing uses your Apple ID (free tier works);
+  # the first deploy creates a free provisioning profile for your device.
+  $XT dev run "${UDID_ARGS[@]}"
+
+  echo "== 5. LLDB attach =="
+  # The Swift toolchain lldb has the remote-ios platform. Attach workflow,
+  # from an interactive lldb session (adjust as needed):
+  #   lldb
+  #   (lldb) platform select remote-ios
+  #   (lldb) platform connect <connect:// URL printed by xtool>
+  #   (lldb) process attach --name HelloOmarchy
+  #   (lldb) b ContentView.swift:12
+  #   (lldb) c
+  # pymobiledevice3 can also reach the developer services; on iOS 17+ the
+  # proven flow is in FINDINGS.md items 10-13 (mounter, sudo start-tunnel,
+  # debugserver lldb <bundle-id> --rsd <addr> <port>).
+  ;;
+network)
+  echo "== WiFi deploy (phone on the same network) -- UNVERIFIED =="
+  echo "Expects: paired over USB once, Developer Mode on, same LAN segment."
+  $XT devices --network
+  $XT dev run --network "${UDID_ARGS[@]}"
+  ;;
+rsd)
+  echo "== Install/launch via RSD $RSD_HOST:$RSD_PORT -- UNVERIFIED =="
+  $PMD3 apps install "$PKG" --rsd "$RSD_HOST" "$RSD_PORT"
+  BID=$(grep -E '^bundle_id:' xtool.yml | awk '{print $2}')
+  if [ -z "$BID" ]; then echo "No bundle_id in xtool.yml; launch it by hand:"; else
+    $PMD3 developer core-device launch-application "$BID" "" --rsd "$RSD_HOST" "$RSD_PORT"
+  fi
+  ;;
+esac

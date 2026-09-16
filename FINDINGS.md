@@ -2,11 +2,17 @@
 
 Everything below came out of one session on 2026-09-09, taking a 13" M1 MacBook Pro
 running Omarchy from a bare install to a SwiftUI app running and debuggable on an
-iPhone 16 Pro Max (iOS 26.6.1). Fourteen things broke. Each one is recorded with the
-error text, the root cause where it was found, and the fix.
+iPhone 16 Pro Max (iOS 26.6.1). Fourteen things broke in the first run, and a
+fifteenth surfaced on 2026-09-16. Each is recorded with the
+error text, the root cause where it was found, and the fix. `install-toolchain.sh`
+applies every fix that can be automated (items 1 to 7); only Apple ID sign-in and
+sudo consent genuinely need a human.
 
 Versions: Swift 6.3.3 (AUR `swift-bin`), xtool 1.19.0, LLDB 21.0.0, pymobiledevice3
 from PyPI, iPhoneOS SDK 26.5 taken from Xcode 26.6.
+
+Confirmed on x86_64 (community report, Jon Kinney, 2026-09-15): the same flow
+works on a Framework Desktop with an iPhone 16, used for a real client project.
 
 ## Toolchain
 
@@ -14,8 +20,9 @@ from PyPI, iPhoneOS SDK 26.5 taken from Xcode 26.6.
 about 3.3 GB installed, roughly 7 minutes. It ships clang and LLDB too.
 
 **2. LLDB will not start: `libpython3.9.so.1.0: cannot open shared object file`.**
-`swift-bin` lists `python39` as an optional dependency and LLDB is the thing that
-needs it. Install AUR `python39`.
+`swift-bin` lists a matching `python3xx` as an optional dependency and LLDB is the
+thing that needs it; the install script reads that note off the installed package
+and installs it (python39 through 6.3.x, python312 from 6.4).
 
 **3. `usbmuxd.socket` does not exist on Arch.** Guides tell you to enable it.
 `usbmuxd.service` is static here and udev starts it when a device is plugged in.
@@ -29,7 +36,9 @@ with `NSCocoaErrorDomain Code=513 "You don't have permission to save the file"`
 while copying `/usr/lib/clang/22/include/fuzzer`. Root cause: swift-corelibs
 `FileManager.copyItem` preserves ownership, so it calls `lchown` to root, which is
 EPERM for a normal user. Fix: take ownership of the toolchain trees first,
-`sudo chown -R "$USER" /usr/lib/clang /usr/lib/swift`.
+`sudo chown -R "$USER:" /usr/lib/clang /usr/lib/swift` (the colon matters:
+copyItem restores the group too, so it must be the user's login group). The
+install script does this automatically before the SDK install.
 
 **5. The SDK installs "successfully" and then SwiftUI will not compile.** The error
 is `size of '__builtin_bit_cast' source type 'int' does not match destination type
@@ -37,11 +46,13 @@ is `size of '__builtin_bit_cast' source type 'int' does not match destination ty
 headers it finds on PATH into the SDK bundle. The system clang here is 22.1.8 while
 the Swift compiler's own clang frontend is 21.0.0, and the headers are not
 compatible across that gap. Fix: run the SDK install with the toolchain's clang
-first on PATH, `PATH=/usr/lib/swift/bin:$PATH xtool sdk install ...`.
+first on PATH, `PATH=/usr/lib/swift/bin:$PATH xtool sdk install ...`. The
+install script exports that PATH itself before installing the SDK.
 
 **6. A poisoned module cache survives the fix.** After rebuilding the SDK correctly,
 the same project in the same directory kept failing with the same error. Fix: build
 in a clean project directory, or delete `.build/arm64-apple-ios` before rebuilding.
+The install script prints this cleanup note after the SDK install.
 
 **7. No `.xip` and no Apple ID are needed for the SDK.** xtool 1.19.0 accepts a path
 to an extracted `Xcode.app` directory, not only an `Xcode.xip`
@@ -92,15 +103,44 @@ platform select remote-ios
 process connect connect://[fd57:f2c9:d44a::1]:63592
 process attach --pid 45977
 * thread #1, queue = 'com.apple.main-thread', stop reason = signal SIGSTOP
-    frame #0: 0x000000023ddbdcd4 libsystem_kernel.dylib`mach_msg2_trap + 8
 ```
+
+## Known regression, 2026-09-16
+
+**15. Swift 6.4.0 cannot build against the xtool darwin SDK.** AUR `swift-bin`
+6.4.0 installs fine, the SDK registers fine (`swift sdk list` prints `darwin`),
+and then every app build dies at planning with `error: unable to find platform
+for 'iphoneos'`. Proven by an isolated A/B on one machine, one user, one SDK
+bundle: the build fails under 6.4.0 with both xtool 1.19.0 and 1.19.2, and
+succeeds the moment the system runs swift-bin 6.3.3 again. The bundle metadata
+is identical in both cases (schemaVersion 4.0, same toolset.json), so the
+regression is on the SwiftPM side. Workaround: run swift-bin 6.3.3 (build it
+from the AUR package's git history). `install-toolchain.sh` warns when it
+installs a 6.4+ toolchain. Confirmed on aarch64 and x86_64.
+
+**16. The streamed SDK's Xcode must match the Linux Swift version.** The SDK
+pieces carry Apple's prebuilt swiftmodules, and the Linux compiler refuses a
+module built by a newer Apple Swift: an iOS 27.0 SDK from Xcode 27 (Apple
+Swift 6.4) fails under swift 6.3.3 with `this SDK is not supported by the
+compiler (the SDK is built with 'Apple Swift version 6.4 ...', while this
+compiler is 'Swift version 6.3.3 ...')`. The matrix, all tested 2026-09-16:
+
+| Linux toolchain | SDK source | Result |
+|---|---|---|
+| swift 6.3.3 | Xcode 26.6 (iOS 26.5) | builds; Mach-O produced |
+| swift 6.3.3 | Xcode 27 (iOS 27.0) | rejected: SDK built by Apple Swift 6.4 |
+| swift 6.4.0 | Xcode 26.6 (iOS 26.5) | planning failure, item 15 |
+| swift 6.4.0 | Xcode 27 (iOS 27.0) | planning failure, item 15 |
+
+Rule: stream pieces from an Xcode whose Swift is 6.3.x (Xcode 26.x) while
+swift-bin is on 6.3.3. When the Mac's Xcode moves past the working pair, the
+fix has to come from upstream (item 15 or a newer xtool SDK format).
 
 ## Working sequence
 
 ```bash
 # once
-./install-toolchain.sh
-PATH=/usr/lib/swift/bin:$PATH xtool sdk install ~/xcode-apple-sdk-src/Xcode.app
+./install-toolchain.sh          # handles python dep, chown, PATH, SDK install
 xtool auth                      # mode 1, Apple ID, 2FA, pick team
 
 # per app
@@ -114,8 +154,20 @@ PATH=/usr/lib/swift/bin:$PATH pymobiledevice3 developer debugserver lldb \
   <bundle-id> --rsd <address> <port>
 ```
 
-## Still open
+## Where it stands
 
-A source-level breakpoint in app code, hit on a tap. The attach above proves the
-debugger controls the process and symbolicates frames; the breakpoint is the last
-piece not yet demonstrated.
+Closed 2026-09-10, after this list was written: the source-level breakpoint.
+`ContentView.describe(tick:)` at `ContentView.swift:27` was hit on device, source
+lines printed, `p tick` returned `(Int) 1`. A static SwiftUI app still cannot be
+breakpointed usefully: instrument the app with a `.task` timer loop so execution
+reaches the breakpoint without a physical tap. Single-stepping is untested
+(`next` reported an unchanged frame line, inconclusive) and needs the phone
+connected for five minutes.
+
+New on 2026-09-16 (Milestone 3): `install-toolchain.sh` applies items 1 to 7 by
+itself and was proven end to end by a fresh-user install on a second M1 Omarchy
+machine and in a clean x86_64 Arch container, through `swift sdk list` and a
+Mach-O sample build. `device-run.sh` gained a `--network` mode (same-LAN
+wireless deploy, xtool native) and an `--rsd HOST PORT PKG` mode (install to an
+explicit address); both are written from the tool sources and are UNVERIFIED
+until run against a phone.
