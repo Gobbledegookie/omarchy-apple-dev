@@ -177,3 +177,13 @@ until run against a phone.
 What the phone actually does on the network: every host that wants wireless debugging gets its OWN encrypted RemotePairing tunnel, advertised per-host as `<uuid>._rp-tunnel._tcp` with an ephemeral port (observed 55518/55520) on IPv6 link-local/ULA addresses. A macOS host that once enabled "Connect via Network" holds a live tunnel (devicectl: Transport `localNetwork`) — the phone accepts only that host; connections from other IPs to the tunnel port are refused. The pre-iOS-17 paths are dead on 26.6.2: `_remoted._tcp` is advertised only over USB; legacy `_apple-mobdev2._tcp` is advertised but its listener (tcp/32498) never binds; tcp/62078 accepts and then resets the lockdown handshake; usbmuxd2's WiFi heartbeat fails on the same wall. `pymobiledevice3 remote pair` needs the device to advertise `_remotepairing-manual-pairing._tcp`, which no iOS 26.6.2 settings screen we could find produces (the `remote pair-host` device-initiated flow is iOS 27+).
 
 Practical guidance: use USB (proven end to end by this repo). Wireless works only for hosts the phone already tunneled with via a Mac/Xcode; for that case `pymobiledevice3 remote tunneld` on a Mac that holds the tunnel, plus `--tunnel UDID@HOST:PORT` from Linux, is the bridge pattern (documented in device-run.sh). The Linux side is otherwise ready: with usbmuxd2 (AUR `usbmuxd2-git` + the -git libimobiledevice stack) and pymobiledevice3, a future iOS that reopens device-side pairing needs zero new plumbing here.
+
+**Update (same day, researched after the verdict):** the iOS 27 door is
+already implemented client-side. `pymobiledevice3 remote pair-host`
+advertises this machine as a pairable host; on an iOS 27 device with
+Developer Mode on, Settings → Developer → **Paired Macs** shows it under
+"Other Devices" — tap, enter the printed 6-digit code, and the pairing
+record is reused by `remote start-tunnel` for the wireless tunnel. All of
+that ships in pymobiledevice3 11.12+ (the version this repo installs).
+Untested here only because no iOS 27 device was on hand.
+
