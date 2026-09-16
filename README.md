@@ -77,13 +77,12 @@ Plug the iPhone in, tap Trust when prompted, then:
 ./device-run.sh
 ```
 
-First run needs `xtool auth` (interactive, your Apple ID; password mode works
-with free accounts). Pairing happens through usbmuxd on first connect.
-
-Wireless deploy (same network as the phone): `./device-run.sh --network` —
-unverified, expects a one-time USB pair first. A phone reachable only over a
-VPN (Tailscale included) cannot be targeted directly; `device-run.sh` documents
-the tunneld bridge pattern pymobiledevice3 supports for that case.
+it needs the phone to advertise `_remoted._tcp`, which iOS only does after
+"Connect via Network" was enabled from a Mac running Xcode once (FINDINGS.md
+17 — tested 2026-09-16 on a never-Xcoded iPhone). USB deploy has no such
+gate. A phone reachable only over a VPN (Tailscale included) cannot be
+targeted directly; `device-run.sh` documents the tunneld bridge pattern
+pymobiledevice3 supports for that case.
 
 ## Scripts
 

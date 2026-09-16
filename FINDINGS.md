@@ -171,3 +171,18 @@ Mach-O sample build. `device-run.sh` gained a `--network` mode (same-LAN
 wireless deploy, xtool native) and an `--rsd HOST PORT PKG` mode (install to an
 explicit address); both are written from the tool sources and are UNVERIFIED
 until run against a phone.
+
+**17. Wireless deploy is Xcode-gated on stock iOS (tested 2026-09-16).** With
+Developer Mode on, the phone paired over USB, unlocked, on the same SSID and
+subnet as the Linux host, and an active USB RSD tunnel (`pymobiledevice3
+remote tunneld` created one successfully), an iPhone on iOS 18 (23G90) that
+has never been connected to Xcode still refuses to advertise `_remoted._tcp`
+over Bonjour — the service iOS 17+ wireless deploy (xtool `--network`,
+CoreDevice) discovers. The phone advertises only the legacy
+`_apple-mobdev2._tcp` lockdown-over-WiFi service, which Linux usbmuxd cannot
+bridge (macOS's usbmuxd does; on Linux, pymobiledevice3 has no
+`--network` lockdown path). Practical consequence: on a phone that has never
+seen a Mac, `device-run.sh --network` cannot discover the device; USB works.
+If the phone was "Connect via Network"-enabled from Xcode once, `_remoted`
+advertises and the mode should work — untested here by design (no Mac in the
+loop anywhere in this project).

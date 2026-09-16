@@ -6,14 +6,21 @@
 # Modes:
 #   ./device-run.sh                        USB (default; the proven path)
 #   ./device-run.sh --network [--udid U]   WiFi, phone on the SAME network.
-#       UNVERIFIED (written without hardware). Expects: the phone paired over
-#       USB once before (the pairing record carries over), Developer Mode on,
-#       and both hosts on one LAN segment; xtool then discovers the phone the
-#       same way Xcode's wireless deploy does.
-#   ./device-run.sh --rsd HOST PORT PKG    UNVERIFIED: install+launch an
-#       already-signed .app/.ipa against an explicit RemoteServiceDiscovery
-#       address -- the only piece that can address a phone by IP (e.g. over
-#       Tailscale), and only if the phone exposes RSD on that interface.
+#       TESTED 2026-09-16 and BLOCKED on stock iOS 18 (see FINDINGS.md 17):
+#       discovery needs the phone to advertise _remoted._tcp over Bonjour,
+#       and the phone only does that after "Connect via Network" was enabled
+#       for it once from a Mac running Xcode (an Xcode-gated switch). With
+#       Developer Mode on, paired over USB, unlocked, same SSID and subnet,
+#       and an active USB RSD tunnel, a never-Xcoded phone still advertises
+#       only the legacy _apple-mobdev2._tcp lockdown service — which Linux
+#       usbmuxd cannot bridge. If your phone HAS been Xcode-enabled, this
+#       mode should work; otherwise use USB or the tunneld bridge below.
+#   ./device-run.sh --rsd HOST PORT PKG    install+launch an already-signed
+#       .app/.ipa against an explicit RemoteServiceDiscovery address -- the
+#       only piece that can address a phone by IP (e.g. over Tailscale), and
+#       only if the phone exposes RSD on that interface (same _remoted gating
+#       as --network; the USB tunnel from `remote tunneld` also provides an
+#       RSD endpoint usable this way).
 #       PKG must be signed with a real certificate: xtool's free-provisioning
 #       signing only happens inside `xtool dev run`.
 #
