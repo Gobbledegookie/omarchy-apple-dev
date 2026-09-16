@@ -186,3 +186,11 @@ seen a Mac, `device-run.sh --network` cannot discover the device; USB works.
 If the phone was "Connect via Network"-enabled from Xcode once, `_remoted`
 advertises and the mode should work — untested here by design (no Mac in the
 loop anywhere in this project).
+
+**18. /tmp is a size-capped tmpfs; makepkg and SwiftPM exhaust it (tested
+2026-09-16).** Omarchy defaults /tmp to tmpfs (RAM/2 — 4 GB on an 8 GB VM).
+The swift-bin 6.3.3 rebuild (1 GB tarball + ~5 GB extraction + 3.5 GB package)
+and SwiftPM build temp both die with ENOSPC / bsdtar extraction errors / I/O
+error 122. Run the AUR pin with `TMPDIR=$HOME/tmp makepkg -si` and build with
+`TMPDIR=$HOME/tmp xtool dev build` when the box has modest RAM. The .xip SDK
+install itself is unaffected (it works in the destination directory).

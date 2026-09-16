@@ -34,6 +34,8 @@ else
   echo "  'unable to find platform for iphoneos', build AUR swift-bin 6.3.3"
   echo "  from the package's git history (git checkout the 6.3.3 commit in"
   echo "  https://aur.archlinux.org/swift-bin.git, then makepkg) and reinstall."
+  echo "  If makepkg dies extracting or builds hit I/O error 122, /tmp tmpfs"
+  echo "  is full — rerun with TMPDIR=\$HOME/tmp (FINDINGS.md item 18)."
 fi
 
 echo "== 3. Toolchain tree ownership (sudo; contents are not modified) =="
