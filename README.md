@@ -61,6 +61,13 @@ SDK pieces xtool needs instead of the full .xip — see Route B in
 
 ## Toolchain swaps (mise/asdf/manual)
 
+Note: mise's own swift backend cannot install on Omarchy today (FINDINGS 20)
+— its distro detection fabricates the platform name and its arm64 directory
+layout is wrong. `swift.platform=ubuntu24.04` gets x64 downloading; on
+arm64 the ubuntu build then fails mise's runtime check. Use the AUR
+`swift-bin` toolchain this repo installs; mise users can still manage other
+tools and point them at the system swift.
+
 Swapping the Swift toolchain — `mise use -g swift@<ver>`, an asdf switch, or a
 manual reinstall — moves Swift to a different absolute path. That does not
 touch what you actually paid for: USB pairing records, your Apple ID auth,

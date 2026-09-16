@@ -246,3 +246,20 @@ record is reused by `remote start-tunnel` for the wireless tunnel. All of
 that ships in pymobiledevice3 11.12+ (the version this repo installs).
 Untested here only because no iOS 27 device was on hand.
 
+
+**20. mise's swift backend is broken on Omarchy — two distinct bugs (tested
+2026-09-16, mise 2026.8.8).** (1) For distros outside its known map
+(ubuntu/amzn/ubi/fedora), `src/plugins/core/swift.rs` builds the artifact
+platform as the raw `os-release` `ID`+`VERSION_ID`, producing
+`swift-6.3.3-RELEASE-omarchy4.0.1rc2-aarch64.tar.gz` → download.swift.org
+404. Omarchy's `ID_LIKE=arch` is ignored. (2) On arm64, the download
+directory only gets its required `-aarch64` suffix for ubuntu builds
+(`platform_directory()`), so even with `mise settings set swift.platform
+ubi9` the URL misses (`ubi9/…` 404s; the artifact lives under
+`ubi9-aarch64/`). URL matrix verified against download.swift.org: x64
+ubuntu2404/ubi9/fedora39 = 200; arm64 only `ubuntu2404-aarch64` = 200.
+With `swift.platform=ubuntu24.04` on arm64 the download succeeds but mise's
+runtime verification fails on Arch (`bin/swift` exit 127) and the install
+rolls back — likely a shared-library mismatch in the ubuntu build. Practical
+status: no working mise swift install on Omarchy arm64 today; use AUR
+`swift-bin` (which ships the ubi9 build and is the path this repo installs).
