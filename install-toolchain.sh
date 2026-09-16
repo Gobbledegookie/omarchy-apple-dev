@@ -52,6 +52,7 @@ echo "== 4. xtool AppImage (aarch64 and x86_64 releases) =="
 mkdir -p "$HOME/.local/bin"
 curl -fL "https://github.com/xtool-org/xtool/releases/latest/download/xtool-$(uname -m).AppImage" \
   -o "$HOME/.local/bin/xtool"
+chmod +x "$HOME/.local/bin/xtool"
 "$HOME/.local/bin/xtool" --version
 
 echo "== 5. pymobiledevice3 in a venv =="
