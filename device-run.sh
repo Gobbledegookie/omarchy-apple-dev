@@ -6,21 +6,20 @@
 # Modes:
 #   ./device-run.sh                        USB (default; the proven path)
 #   ./device-run.sh --network [--udid U]   WiFi, phone on the SAME network.
-#       TESTED 2026-09-16 and BLOCKED on stock iOS 18 (see FINDINGS.md 17):
-#       discovery needs the phone to advertise _remoted._tcp over Bonjour,
-#       and the phone only does that after "Connect via Network" was enabled
-#       for it once from a Mac running Xcode (an Xcode-gated switch). With
-#       Developer Mode on, paired over USB, unlocked, same SSID and subnet,
-#       and an active USB RSD tunnel, a never-Xcoded phone still advertises
-#       only the legacy _apple-mobdev2._tcp lockdown service — which Linux
-#       usbmuxd cannot bridge. If your phone HAS been Xcode-enabled, this
-#       mode should work; otherwise use USB or the tunneld bridge below.
+#       TESTED EXHAUSTIVELY 2026-09-16 on iOS 26.6.2: BLOCKED for hosts the
+#       phone has no RemotePairing tunnel with. iOS gives every host its own
+#       encrypted tunnel (`<uuid>._rp-tunnel._tcp`, ephemeral port), accepts
+#       nobody else, and offers no device-side pairing screen to add a host
+#       (that flow is iOS 27+). A Mac that once enabled "Connect via Network"
+#       keeps a working wireless tunnel; a Linux host cannot get one today.
+#       Full evidence in FINDINGS.md 17. Use USB, or the tunneld bridge below
+#       through a Mac that holds the tunnel.
 #   ./device-run.sh --rsd HOST PORT PKG    install+launch an already-signed
-#       .app/.ipa against an explicit RemoteServiceDiscovery address -- the
-#       only piece that can address a phone by IP (e.g. over Tailscale), and
-#       only if the phone exposes RSD on that interface (same _remoted gating
-#       as --network; the USB tunnel from `remote tunneld` also provides an
-#       RSD endpoint usable this way).
+#       .app/.ipa against an explicit RemoteServiceDiscovery address. Works
+#       against tunnels you DO hold: the RSD endpoint printed by
+#       `sudo pymobiledevice3 lockdown start-tunnel` (USB) or a tunneld
+#       instance. Addressing the phone's WiFi interfaces directly does not
+#       work on iOS 26 (per-host tunnel gating, FINDINGS.md 17).
 #       PKG must be signed with a real certificate: xtool's free-provisioning
 #       signing only happens inside `xtool dev run`.
 #

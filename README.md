@@ -77,12 +77,14 @@ Plug the iPhone in, tap Trust when prompted, then:
 ./device-run.sh
 ```
 
-it needs the phone to advertise `_remoted._tcp`, which iOS only does after
-"Connect via Network" was enabled from a Mac running Xcode once (FINDINGS.md
-17 — tested 2026-09-16 on a never-Xcoded iPhone). USB deploy has no such
-gate. A phone reachable only over a VPN (Tailscale included) cannot be
-targeted directly; `device-run.sh` documents the tunneld bridge pattern
-pymobiledevice3 supports for that case.
+Wireless deploy is **blocked on iOS 26** for Linux-only setups, tested
+exhaustively (FINDINGS.md 17): iOS gives each host its own encrypted
+RemotePairing tunnel and offers no way for a Linux host to claim one — a Mac
+that once enabled "Connect via Network" holds a working wireless tunnel,
+everyone else is refused. USB deploy works everywhere with no Apple-side
+gate. When your phone DOES hold a tunnel with some host, `device-run.sh`
+documents the pymobiledevice3 tunneld bridge for that case, and
+`device-run.sh --rsd` can drive any tunnel endpoint you hold.
 
 ## Scripts
 

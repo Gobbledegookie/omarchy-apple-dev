@@ -172,25 +172,8 @@ wireless deploy, xtool native) and an `--rsd HOST PORT PKG` mode (install to an
 explicit address); both are written from the tool sources and are UNVERIFIED
 until run against a phone.
 
-**17. Wireless deploy is Xcode-gated on stock iOS (tested 2026-09-16).** With
-Developer Mode on, the phone paired over USB, unlocked, on the same SSID and
-subnet as the Linux host, and an active USB RSD tunnel (`pymobiledevice3
-remote tunneld` created one successfully), an iPhone on iOS 18 (23G90) that
-has never been connected to Xcode still refuses to advertise `_remoted._tcp`
-over Bonjour — the service iOS 17+ wireless deploy (xtool `--network`,
-CoreDevice) discovers. The phone advertises only the legacy
-`_apple-mobdev2._tcp` lockdown-over-WiFi service, which Linux usbmuxd cannot
-bridge (macOS's usbmuxd does; on Linux, pymobiledevice3 has no
-`--network` lockdown path). Practical consequence: on a phone that has never
-seen a Mac, `device-run.sh --network` cannot discover the device; USB works.
-If the phone was "Connect via Network"-enabled from Xcode once, `_remoted`
-advertises and the mode should work — untested here by design (no Mac in the
-loop anywhere in this project).
+**17. Wireless deploy on iOS 26 requires a host-specific RemotePairing tunnel that only a Mac can currently establish (tested exhaustively 2026-09-16).** With Developer Mode on, USB-paired, unlocked, same SSID/subnet, `EnableWifiConnections` true, an active USB RSD tunnel (`lockdown start-tunnel` succeeded), and DDI mounted, an iPhone on iOS 26.6.2 never becomes wirelessly deployable from Linux: pulling the USB cable kills the tunnel and nothing re-establishes over WiFi.
 
-**18. /tmp is a size-capped tmpfs; makepkg and SwiftPM exhaust it (tested
-2026-09-16).** Omarchy defaults /tmp to tmpfs (RAM/2 — 4 GB on an 8 GB VM).
-The swift-bin 6.3.3 rebuild (1 GB tarball + ~5 GB extraction + 3.5 GB package)
-and SwiftPM build temp both die with ENOSPC / bsdtar extraction errors / I/O
-error 122. Run the AUR pin with `TMPDIR=$HOME/tmp makepkg -si` and build with
-`TMPDIR=$HOME/tmp xtool dev build` when the box has modest RAM. The .xip SDK
-install itself is unaffected (it works in the destination directory).
+What the phone actually does on the network: every host that wants wireless debugging gets its OWN encrypted RemotePairing tunnel, advertised per-host as `<uuid>._rp-tunnel._tcp` with an ephemeral port (observed 55518/55520) on IPv6 link-local/ULA addresses. A macOS host that once enabled "Connect via Network" holds a live tunnel (devicectl: Transport `localNetwork`) — the phone accepts only that host; connections from other IPs to the tunnel port are refused. The pre-iOS-17 paths are dead on 26.6.2: `_remoted._tcp` is advertised only over USB; legacy `_apple-mobdev2._tcp` is advertised but its listener (tcp/32498) never binds; tcp/62078 accepts and then resets the lockdown handshake; usbmuxd2's WiFi heartbeat fails on the same wall. `pymobiledevice3 remote pair` needs the device to advertise `_remotepairing-manual-pairing._tcp`, which no iOS 26.6.2 settings screen we could find produces (the `remote pair-host` device-initiated flow is iOS 27+).
+
+Practical guidance: use USB (proven end to end by this repo). Wireless works only for hosts the phone already tunneled with via a Mac/Xcode; for that case `pymobiledevice3 remote tunneld` on a Mac that holds the tunnel, plus `--tunnel UDID@HOST:PORT` from Linux, is the bridge pattern (documented in device-run.sh). The Linux side is otherwise ready: with usbmuxd2 (AUR `usbmuxd2-git` + the -git libimobiledevice stack) and pymobiledevice3, a future iOS that reopens device-side pairing needs zero new plumbing here.
