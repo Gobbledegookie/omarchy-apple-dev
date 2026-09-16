@@ -9,6 +9,76 @@ set -euo pipefail
 SWIFT_BIN_DIR=/usr/lib/swift/bin
 VENV="$HOME/pymobile3-venv"
 SDK_SRC="${SDK_SRC:-$HOME/xcode-apple-sdk-src}"
+SDK_CACHE="${SDK_CACHE:-$HOME/.cache/xtool}"
+
+# Register the SDK bundle at $1 into whatever toolchain is first on PATH.
+# swift sdk install refuses to overwrite an existing bundle, so clear it first.
+sdk_install_from() {
+  swift sdk remove darwin >/dev/null 2>&1 || true
+  "$HOME/.local/bin/xtool" sdk install "$1"
+}
+
+# Build the portable darwin.xtoolsdk from an Xcode.xip or Xcode.app ($1),
+# keep it in the cache, and register it. Building instead of installing
+# directly costs the same extraction plus one local copy, but the result is
+# toolchain-independent: it survives toolchain swaps (mise/asdf/manual) and
+# re-registers with no .xip and no network (see README, Toolchain swaps).
+sdk_build_and_install() {
+  mkdir -p "$SDK_CACHE"
+  tmpd=$(mktemp -d "$SDK_CACHE/.build.XXXXXX")
+  "$HOME/.local/bin/xtool" sdk build "$1" "$tmpd"
+  ver=$(basename "$1" | grep -oE '[0-9]+(\.[0-9]+)+' | head -n1 || true)
+  cached="$SDK_CACHE/darwin-${ver:-unknown}.xtoolsdk"
+  rm -rf "$cached"
+  mv "$tmpd/darwin.xtoolsdk" "$cached"
+  rmdir "$tmpd"
+  echo "SDK cache kept at: $cached"
+  sdk_install_from "$cached"
+}
+
+# Survive-status summary: what a toolchain swap leaves behind.
+survive_status() {
+  echo "-- Survive status --"
+  echo "SDK: re-registered from $1"
+  if ls "$HOME/.pymobiledevice3"/*.plist >/dev/null 2>&1; then
+    echo "pairing: intact at $HOME/.pymobiledevice3"
+  else
+    echo "pairing: no records yet (plug the iPhone once; nothing is lost here by a swap)"
+  fi
+  if [ -n "$(ls -A "$HOME/.local/share/xtool" 2>/dev/null)" ]; then
+    echo "auth: present at $HOME/.local/share/xtool"
+  else
+    echo "auth: missing — run: $HOME/.local/bin/xtool auth"
+  fi
+}
+
+if [ "${1:-}" = "--repair" ]; then
+  # Toolchain swapped out from under a working setup (mise, asdf, manual
+  # reinstall): repair runs against whatever toolchain the current shell
+  # resolves, so the SDK is re-registered into THAT toolchain. Pairing and
+  # Apple ID auth live in user-global paths and were never affected.
+  if ! command -v swift >/dev/null 2>&1; then
+    echo "No swift on PATH. Activate your toolchain first — for mise:"
+    echo '  eval "$(mise activate bash)"   # or reopen your shell'
+    exit 1
+  fi
+  swift --version | head -n1
+  cached=$(ls -dt "$SDK_CACHE"/darwin-*.xtoolsdk 2>/dev/null | head -n1 || true)
+  if [ -n "$cached" ]; then
+    sdk_install_from "$cached"
+  elif [ -n "${XCODE_XIP:-}" ] && [ -f "$XCODE_XIP" ]; then
+    cached="XCODE_XIP=$XCODE_XIP"
+    sdk_build_and_install "$XCODE_XIP"
+  else
+    echo "No cached SDK in $SDK_CACHE and no XCODE_XIP given."
+    echo "Nothing to repair from. Either point XCODE_XIP at an Xcode 26.x .xip,"
+    echo "or run once with XCODE_XIP to build the cache for next time."
+    exit 1
+  fi
+  swift sdk list   # must print: darwin
+  survive_status "$cached"
+  exit 0
+fi
 
 echo "== 1. usbmuxd (device multiplexer; udev starts it on plug) =="
 sudo pacman -S --needed --noconfirm usbmuxd
@@ -101,9 +171,9 @@ export PATH="$SWIFT_BIN_DIR:$PATH"
 if swift sdk list 2>/dev/null | grep -q darwin; then
   echo "Darwin SDK already registered; skipping install."
 elif [ -n "${XCODE_XIP:-}" ] && [ -f "$XCODE_XIP" ]; then
-  "$HOME/.local/bin/xtool" sdk install "$XCODE_XIP"
+  sdk_build_and_install "$XCODE_XIP"
 elif [ -d "$SDK_SRC/Xcode.app" ]; then
-  "$HOME/.local/bin/xtool" sdk install "$SDK_SRC/Xcode.app"
+  sdk_build_and_install "$SDK_SRC/Xcode.app"
 else
   echo
   echo "==================================================================="
@@ -116,6 +186,9 @@ else
   echo "      Xcode 26.x pairs with swift-bin 6.3.3; see FINDINGS.md 15-16)."
   echo " 3. Re-run:"
   echo "      XCODE_XIP=/path/to/Xcode.xip $0"
+  echo
+  echo " Already installed before with this script? The SDK cache in"
+  echo " $SDK_CACHE may still have the bundle — try: $0 --repair"
   echo "==================================================================="
   exit 1
 fi

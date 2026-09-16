@@ -59,6 +59,30 @@ Already have a Mac with a matching Xcode? You can stream just the ~3 GB of
 SDK pieces xtool needs instead of the full .xip — see Route B in
 `install-toolchain.sh` section 6. Optional; the .xip route above needs no Mac.
 
+## Toolchain swaps (mise/asdf/manual)
+
+Swapping the Swift toolchain — `mise use -g swift@<ver>`, an asdf switch, or a
+manual reinstall — moves Swift to a different absolute path. That does not
+touch what you actually paid for: USB pairing records, your Apple ID auth,
+and the SDK cache all live in user-global paths and survive by design.
+
+What survives a swap:
+
+- **Pairing** — `~/.pymobiledevice3/` (+ `/var/lib/lockdown` records).
+- **Apple ID auth** — `~/.local/share/xtool/`.
+- **SDK cache** — `~/.cache/xtool/darwin-<xcodever>.xtoolsdk`, kept by the
+  install script. The SDK bundle references the toolchain that registered it,
+  so after a swap it must be **re-registered into the current toolchain**:
+
+```
+./install-toolchain.sh --repair
+```
+
+`--repair` re-registers the cached SDK (no `.xip`, no network) and prints a
+survive-status summary: SDK source used, pairing location, auth state. It
+exits nonzero with instructions when the cache is missing and no `XCODE_XIP`
+is given.
+
 ## First app
 
 ```
@@ -88,16 +112,19 @@ documents the pymobiledevice3 tunneld bridge for that case, and
 
 ## Scripts
 
-- `install-toolchain.sh`: everything up to and including the SDK install.
+- `install-toolchain.sh`: everything up to and including the SDK install;
+  `--repair` re-registers the cached SDK into the current toolchain after a
+  toolchain swap (see *Toolchain swaps* above).
 - `device-run.sh`: pair, install, launch, LLDB attach; `--network` and
   `--rsd` modes for wireless deploys (unverified).
 
 ## Findings
 
-[FINDINGS.md](FINDINGS.md) records the sixteen findings behind the working
+[FINDINGS.md](FINDINGS.md) records the nineteen findings behind the working
 run: what broke and how each was fixed (SDK install failures, a clang version
 mismatch that breaks SwiftUI, the unstated prerequisites for debugging on
-iOS 17+), plus the Swift/Xcode version matrix (items 15-16).
+iOS 17+), the Swift/Xcode version matrix (items 15-16), and why a toolchain
+swap breaks SDK registration and how `--repair` restores it (item 19).
 
 ## Notes
 

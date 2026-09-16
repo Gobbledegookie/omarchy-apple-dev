@@ -3,8 +3,8 @@
 Everything below came out of one session on 2026-09-09, taking a 13" M1 MacBook Pro
 running Omarchy from a bare install to a SwiftUI app running and debuggable on an
 iPhone 16 Pro Max (iOS 26.6.1). Fourteen things broke in the first run, and a
-fifteenth surfaced on 2026-09-16. Each is recorded with the
-error text, the root cause where it was found, and the fix. `install-toolchain.sh`
+fifteenth surfaced on 2026-09-16, with items 16-19 following the same day.
+Each is recorded with the error text, the root cause where it was found, and the fix. `install-toolchain.sh`
 applies every fix that can be automated (items 1 to 7); only Apple ID sign-in and
 sudo consent genuinely need a human.
 
@@ -135,6 +135,65 @@ compiler is 'Swift version 6.3.3 ...')`. The matrix, all tested 2026-09-16:
 Rule: stream pieces from an Xcode whose Swift is 6.3.x (Xcode 26.x) while
 swift-bin is on 6.3.3. When the Mac's Xcode moves past the working pair, the
 fix has to come from upstream (item 15 or a newer xtool SDK format).
+
+## Toolchain swaps, 2026-09-16
+
+**18. makepkg and SwiftPM can fill /tmp's tmpfs.** On Omarchy, /tmp is a
+small tmpfs (4 GB here). Unpacking AUR sources (swift-bin is ~800 MB
+compressed, 3.3 GB installed) or building a SwiftUI app dies mid-extract
+with `I/O error 122` / `No space left on device` when it fills. Fix: point
+TMPDIR at the real disk — `TMPDIR=$HOME/tmp makepkg -si`; the same variable
+covers SwiftPM's scratch files. The 6.4 warning in `install-toolchain.sh`
+mentions this.
+
+**19. Toolchain swaps (mise/asdf/manual) used to end in a full multi-GB
+reinstall; `install-toolchain.sh --repair` now recovers from cache.**
+Tested on a fresh x86_64 Omarchy VM by pinning swift 6.3.3 at /usr/lib/swift
+(AUR swift-bin), registering the SDK, then removing that package and running
+swift from a second install under
+~/.local/share/mise/installs/swift/6.3.3 (the layout mise would create).
+
+What survives a swap by design: USB pairing (`~/.pymobiledevice3/`), Apple
+ID auth (`~/.local/share/xtool/`), and even the SDK registration itself —
+the bundle in `~/.swiftpm/swift-sdks/darwin.artifactbundle` is user-global
+and its metadata uses bundle-relative paths (`toolset.json`:
+`"rootPath": "toolset/bin"`, `"linker": {"path": "ld64.lld"}`; the absolute
+paths live only in `swift sdk configure --show-configuration` output,
+resolved at use time). After the swap, `swift sdk list` still prints
+`darwin` and a clean project still builds end to end.
+
+What actually breaks:
+
+1. **mise cannot install Swift on Omarchy at all** (mise 2026.9.10). Its
+   swift backend builds a distro-specific download URL and swift.org never
+   publishes one for Omarchy: `mise use -g swift@6.3.3` fails with
+   `HTTP status client error (404 Not Found) for url
+   https://download.swift.org/swift-6.3.3-release/omarchy404/swift-6.3.3-RELEASE/swift-6.3.3-RELEASE-omarchy4.0.4.tar.gz`.
+   So the "clean mise swap" on Omarchy always means a manual install at a
+   different path — and a swift.org tarball run this way needs
+   `libncurses.so.6`, which Arch does not ship (`ln -s libncursesw.so.6`).
+2. **The project-side module cache**: after any toolchain change, building
+   in an existing project can die on stale precompiled modules — same
+   failure class as item 6. Fix: delete that project's `.build`.
+3. **Loss of the SDK registration** (`swift sdk remove darwin`, a wiped
+   `~/.swiftpm`, a partial install) used to require the `Xcode.xip` again —
+   and users delete the .xip after installing, so recovery meant
+   re-downloading 3 GB from Apple behind a sign-in. That was the reinstall
+   circus.
+
+The fix in `install-toolchain.sh`: the SDK step now runs `xtool sdk build`
+once and keeps the resulting portable bundle at
+`~/.cache/xtool/darwin-<xcodever>.xtoolsdk`; the registered copy is made
+FROM that cache, so first install and every later repair exercise the same
+path. Whenever `swift sdk list` lacks darwin on a re-run, the script
+re-registers from the cache — no .xip, no network.
+`install-toolchain.sh --repair` does just that part, against whatever
+toolchain the current shell resolves (mise included), verifies pairing and
+auth, prints a survive-status summary (SDK source used / pairing path /
+auth state), and exits nonzero with instructions when the cache is missing
+and no XCODE_XIP is given. The version matrix (items 15-16) still applies:
+--repair re-registers the same bundle; it cannot make a 6.4.0 toolchain
+consume an Xcode 26.x SDK.
 
 ## Working sequence
 
