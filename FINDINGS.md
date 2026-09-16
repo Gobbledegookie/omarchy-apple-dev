@@ -260,6 +260,8 @@ ubi9` the URL misses (`ubi9/…` 404s; the artifact lives under
 ubuntu2404/ubi9/fedora39 = 200; arm64 only `ubuntu2404-aarch64` = 200.
 With `swift.platform=ubuntu24.04` on arm64 the download succeeds but mise's
 runtime verification fails on Arch (`bin/swift` exit 127) and the install
-rolls back — likely a shared-library mismatch in the ubuntu build. Practical
+rolls back — likely a shared-library mismatch in the ubuntu build. Filed upstream:
+https://github.com/jdx/mise/discussions/13289 (fabricated names, ID_LIKE ignored)
+and /13291 (arm64 directory suffix). Practical
 status: no working mise swift install on Omarchy arm64 today; use AUR
 `swift-bin` (which ships the ubi9 build and is the path this repo installs).
