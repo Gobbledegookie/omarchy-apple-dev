@@ -3,7 +3,8 @@
 Everything below came out of one session on 2026-09-09, taking a 13" M1 MacBook Pro
 running Omarchy from a bare install to a SwiftUI app running and debuggable on an
 iPhone 16 Pro Max (iOS 26.6.1). Fourteen things broke in the first run, and a
-fifteenth surfaced on 2026-09-16, with items 16-19 following the same day.
+fifteenth surfaced on 2026-09-16, with items 16-20 following the same day;
+item 21 came from the 2026-09-17 mise retest.
 Each is recorded with the error text, the root cause where it was found, and the fix. `install-toolchain.sh`
 applies every fix that can be automated (items 1 to 7); only Apple ID sign-in and
 sudo consent genuinely need a human.
@@ -282,5 +283,65 @@ ships `libncursesw.so.6` only; `/usr/lib/libncurses.so.6` is absent.
 mise rolls the install back. This is the third issue jdx asked confirmed
 in #13289: the ubi9 artifact does not run on Arch as-is.
 
-Practical status: 13289 and 13291 are fixed on main. `mise install swift`
-on Omarchy arm64 still fails at runtime. Use AUR `swift-bin`.
+Status: 13289 and 13291 are fixed on main. The runtime failure is a
+narrow-vs-wide ncurses naming split, not a mise bug — and it is
+solvable; see item 21.
+
+**21. mise CAN install and run Swift on Omarchy: the ubi9 build needs three
+narrow curses sonames Arch does not ship (proven 2026-09-17, jwm1).**
+
+Every missing soname in the whole ubi9 6.3.3 toolchain, found by `ldd`-ing
+all of `usr/bin` and `usr/lib/*.so*`:
+
+| ubi9 binary wants | Arch ships |
+|---|---|
+| `libncurses.so.6` | `libncursesw.so.6` |
+| `libform.so.6` | `libformw.so.6` |
+| `libpanel.so.6` | `libpanelw.so.6` |
+
+Three, all with wide-char twins. (`libtinfo.so.6` is already present on
+Arch; `/usr/lib/libncurses.so` is an 18-byte linker script, not a runtime
+library.) Arch's wide-only ncurses is deliberate policy; Debian/Ubuntu
+ship one wide-compiled ncurses that provides *both* sonames, which is why
+the vendor tarball runs there and not here.
+
+The substitution is sound, not a gamble: `liblldb.so` imports **zero**
+wide-char curses symbols (`_wch`/`_wstr`/`cchar` count = 0) — only the
+narrow subset the wide build also exports — it records **no symbol-version
+requirement** on any of the three, and `ldd -r` against the wide libs
+resolves everything with no undefined symbols and no version warnings.
+
+Working recipe, no root and no `/usr/lib` mutation:
+
+```bash
+mkdir -p ~/.local/lib/curses-narrow-compat
+ln -sf /usr/lib/libncursesw.so.6 ~/.local/lib/curses-narrow-compat/libncurses.so.6
+ln -sf /usr/lib/libformw.so.6    ~/.local/lib/curses-narrow-compat/libform.so.6
+ln -sf /usr/lib/libpanelw.so.6   ~/.local/lib/curses-narrow-compat/libpanel.so.6
+
+export LD_LIBRARY_PATH=~/.local/lib/curses-narrow-compat
+mise install swift@6.3.3
+```
+
+Verified on that path with the `533346cc` build: `mise install swift@6.3.3`
+passes its own `swift --version` gate (`Swift version 6.3.3
+(swift-6.3.3-RELEASE)`, `Target: aarch64-unknown-linux-gnu`), `mise ls
+swift` lists 6.3.3, `lldb --version` reports 21.0.0, and
+`mise exec swift@6.3.3 -- swift build` builds a SwiftPM executable in
+1.47 s.
+
+`LD_LIBRARY_PATH` must be in the **shell**. Setting it in `mise.toml`
+`[env]` is not enough: the post-extract verification child does not get
+config env, so the install still dies with exit 127. That is a second,
+separate mise gap worth reporting — alongside the first, that mise picks
+an artifact it never checks the host can load, and reports a bare
+`exit code 127` instead of naming the missing library.
+
+Residual risk, honestly: the narrow/wide pairing is only exercised here
+through the API lldb actually calls. The curses TUI (`lldb --gui`) is the
+thing to smoke-test before relying on it.
+
+This does not change what this repo installs. AUR `swift-bin` already did
+the same reconciliation properly at package level — its `swift` links
+`libncursesw.so` directly — and it remains `install-toolchain.sh`'s path.
+Item 15 still applies to any mise-installed 6.4.x toolchain.

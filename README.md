@@ -61,15 +61,24 @@ SDK pieces xtool needs instead of the full .xip — see Route B in
 
 ## Toolchain swaps (mise/asdf/manual)
 
-Note: mise's own swift backend still cannot complete an install on Omarchy
-(FINDINGS 20). The two URL bugs (fabricated `omarchy4.0.1rc2` platform,
-missing `-aarch64` directory) are fixed on mise main
+Note on mise: its two swift-backend URL bugs are fixed on mise main
 ([#13293](https://github.com/jdx/mise/pull/13293),
-[#13297](https://github.com/jdx/mise/pull/13297), not in a tagged release
-as of 2026-09-17). The remaining wall is runtime: the ubi9 tarball needs
-`libncurses.so.6`, which Arch does not ship. Use the AUR `swift-bin`
-toolchain this repo installs; mise users can still manage other tools and
-point them at the system swift.
+[#13297](https://github.com/jdx/mise/pull/13297)) but not in a tagged
+release as of 2026-09-17. With a build past those, `mise install swift`
+does work on Omarchy once you supply three curses sonames Arch names
+differently (FINDINGS 21):
+
+```
+mkdir -p ~/.local/lib/curses-narrow-compat
+ln -sf /usr/lib/libncursesw.so.6 ~/.local/lib/curses-narrow-compat/libncurses.so.6
+ln -sf /usr/lib/libformw.so.6    ~/.local/lib/curses-narrow-compat/libform.so.6
+ln -sf /usr/lib/libpanelw.so.6   ~/.local/lib/curses-narrow-compat/libpanel.so.6
+export LD_LIBRARY_PATH=~/.local/lib/curses-narrow-compat
+```
+
+This repo still installs AUR `swift-bin`, which resolves the same thing at
+package level and needs no shim. Note item 15: a mise-installed 6.4.x
+toolchain cannot build against the darwin SDK.
 
 Swapping the Swift toolchain — `mise use -g swift@<ver>`, an asdf switch, or a
 manual reinstall — moves Swift to a different absolute path. That does not
@@ -130,11 +139,12 @@ documents the pymobiledevice3 tunneld bridge for that case, and
 
 ## Findings
 
-[FINDINGS.md](FINDINGS.md) records the nineteen findings behind the working
+[FINDINGS.md](FINDINGS.md) records the twenty-one findings behind the working
 run: what broke and how each was fixed (SDK install failures, a clang version
 mismatch that breaks SwiftUI, the unstated prerequisites for debugging on
-iOS 17+), the Swift/Xcode version matrix (items 15-16), and why a toolchain
-swap breaks SDK registration and how `--repair` restores it (item 19).
+iOS 17+), the Swift/Xcode version matrix (items 15-16), why a toolchain
+swap breaks SDK registration and how `--repair` restores it (item 19), and
+the mise/ncurses soname story (items 20-21).
 
 ## Notes
 
