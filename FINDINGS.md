@@ -311,14 +311,14 @@ narrow subset the wide build also exports — it records **no symbol-version
 requirement** on any of the three, and `ldd -r` against the wide libs
 resolves everything with no undefined symbols and no version warnings.
 
-Working recipe, no root and no `/usr/lib` mutation:
+Shipped as `install-toolchain.sh --curses-compat` (2026-09-17): it aliases
+whichever narrow curses sonames the host lacks to their wide twins in
+`~/.local/lib/curses-narrow-compat`, optionally verifies an extracted
+toolchain root with `ldd -r`, and prints the export line. No root, no
+`/usr/lib` mutation.
 
 ```bash
-mkdir -p ~/.local/lib/curses-narrow-compat
-ln -sf /usr/lib/libncursesw.so.6 ~/.local/lib/curses-narrow-compat/libncurses.so.6
-ln -sf /usr/lib/libformw.so.6    ~/.local/lib/curses-narrow-compat/libform.so.6
-ln -sf /usr/lib/libpanelw.so.6   ~/.local/lib/curses-narrow-compat/libpanel.so.6
-
+./install-toolchain.sh --curses-compat
 export LD_LIBRARY_PATH=~/.local/lib/curses-narrow-compat
 mise install swift@6.3.3
 ```

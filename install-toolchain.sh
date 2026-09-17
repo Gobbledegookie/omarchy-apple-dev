@@ -52,6 +52,79 @@ survive_status() {
   fi
 }
 
+# Vendor Swift tarballs (the swift.org ubi9/ubuntu builds, which is what mise
+# installs) link the narrow curses sonames RHEL and Debian ship. Arch builds
+# ncurses wide-only, so libncurses.so.6, libform.so.6 and libpanel.so.6 do not
+# exist here and the toolchain dies at load with "error while loading shared
+# libraries"; mise reports a bare exit 127 and rolls the install back
+# (FINDINGS.md item 21). The wide libraries serve these callers: the Swift
+# toolchain imports no wide-char curses symbols and records no symbol-version
+# requirement, so ldd -r resolves clean against them.
+#
+# The aliases go in a private directory, never /usr/lib: pacman owns that, an
+# unowned alias there survives ncurses updates silently, and it would shadow
+# the narrow ABI for every other binary on the system.
+CURSES_COMPAT_DIR="${CURSES_COMPAT_DIR:-$HOME/.local/lib/curses-narrow-compat}"
+
+curses_compat() {
+  mkdir -p "$CURSES_COMPAT_DIR"
+  echo "== curses compat aliases in $CURSES_COMPAT_DIR =="
+  linked=0
+  for stem in ncurses form panel menu tinfo; do
+    narrow="lib${stem}.so.6"
+    wide="/usr/lib/lib${stem}w.so.6"
+    [ -e "/usr/lib/$narrow" ] && continue   # host ships the narrow name already
+    [ -e "$wide" ] || continue              # no wide twin to alias
+    ln -sfn "$wide" "$CURSES_COMPAT_DIR/$narrow"
+    echo "  $narrow -> $wide"
+    linked=$((linked + 1))
+  done
+  if [ "$linked" -eq 0 ]; then echo "  nothing to alias (host already complete)"; fi
+
+  # Optional: verify against an extracted toolchain root ($1).
+  if [ -n "${1:-}" ]; then
+    if [ ! -d "$1" ]; then
+      echo "Not a directory: $1" >&2
+      return 1
+    fi
+    echo "-- verifying $1 --"
+    unresolved=$(
+      export LD_LIBRARY_PATH="$CURSES_COMPAT_DIR${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}"
+      { find "$1" -path '*/bin/*' -type f -perm -u+x
+        find "$1" -name '*.so*' -type f; } 2>/dev/null |
+        while read -r f; do ldd -r "$f" 2>/dev/null | grep -E 'not found' || true; done |
+        awk '{print $1}' | sort -u
+    )
+    if [ -n "$unresolved" ]; then
+      echo "still unresolved (no wide twin on this host):"
+      echo "$unresolved" | sed 's/^/  /'
+      return 1
+    fi
+    echo "  all sonames resolve"
+  fi
+
+  cat <<EOF
+
+Put the directory on the loader path in your SHELL before installing:
+
+  export LD_LIBRARY_PATH="$CURSES_COMPAT_DIR\${LD_LIBRARY_PATH:+:\$LD_LIBRARY_PATH}"
+  mise install swift@6.3.3
+
+It must be the shell environment. mise does not apply mise.toml [env] to the
+post-extract "swift --version" check, so the install still fails exit 127
+after re-downloading the whole toolchain.
+
+This repo's own install path (AUR swift-bin) does not need any of this; the
+package links the wide libraries directly. FINDINGS.md item 15 still applies:
+a mise-installed 6.4.x toolchain cannot build against the darwin SDK.
+EOF
+}
+
+if [ "${1:-}" = "--curses-compat" ]; then
+  curses_compat "${2:-}"
+  exit 0
+fi
+
 if [ "${1:-}" = "--repair" ]; then
   # Toolchain swapped out from under a working setup (mise, asdf, manual
   # reinstall): repair runs against whatever toolchain the current shell

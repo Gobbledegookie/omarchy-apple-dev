@@ -69,12 +69,18 @@ does work on Omarchy once you supply three curses sonames Arch names
 differently (FINDINGS 21):
 
 ```
-mkdir -p ~/.local/lib/curses-narrow-compat
-ln -sf /usr/lib/libncursesw.so.6 ~/.local/lib/curses-narrow-compat/libncurses.so.6
-ln -sf /usr/lib/libformw.so.6    ~/.local/lib/curses-narrow-compat/libform.so.6
-ln -sf /usr/lib/libpanelw.so.6   ~/.local/lib/curses-narrow-compat/libpanel.so.6
+./install-toolchain.sh --curses-compat
 export LD_LIBRARY_PATH=~/.local/lib/curses-narrow-compat
+mise install swift@6.3.3
 ```
+
+`--curses-compat` aliases every narrow curses soname the host is missing to
+its wide twin inside `~/.local/lib/curses-narrow-compat` (nothing under
+`/usr/lib` is touched) and prints the export line. Pass an extracted
+toolchain directory to have it verify that every soname resolves:
+`./install-toolchain.sh --curses-compat /path/to/swift-6.3.3-RELEASE-ubi9-aarch64`.
+The variable has to be in the shell — mise does not apply `mise.toml`
+`[env]` to its post-extract `swift --version` check.
 
 This repo still installs AUR `swift-bin`, which resolves the same thing at
 package level and needs no shim. Note item 15: a mise-installed 6.4.x
@@ -133,7 +139,9 @@ documents the pymobiledevice3 tunneld bridge for that case, and
 
 - `install-toolchain.sh`: everything up to and including the SDK install;
   `--repair` re-registers the cached SDK into the current toolchain after a
-  toolchain swap (see *Toolchain swaps* above).
+  toolchain swap (see *Toolchain swaps* above); `--curses-compat [ROOT]`
+  creates the curses sonames a vendor (mise/swift.org) toolchain needs on
+  Arch and optionally verifies ROOT resolves.
 - `device-run.sh`: pair, install, launch, LLDB attach; `--network` and
   `--rsd` modes for wireless deploys (unverified).
 
