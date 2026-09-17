@@ -164,14 +164,11 @@ resolved at use time). After the swap, `swift sdk list` still prints
 
 What actually breaks:
 
-1. **mise cannot install Swift on Omarchy at all** (mise 2026.9.10). Its
-   swift backend builds a distro-specific download URL and swift.org never
-   publishes one for Omarchy: `mise use -g swift@6.3.3` fails with
-   `HTTP status client error (404 Not Found) for url
-   https://download.swift.org/swift-6.3.3-release/omarchy404/swift-6.3.3-RELEASE/swift-6.3.3-RELEASE-omarchy4.0.4.tar.gz`.
-   So the "clean mise swap" on Omarchy always means a manual install at a
-   different path — and a swift.org tarball run this way needs
-   `libncurses.so.6`, which Arch does not ship (`ln -s libncursesw.so.6`).
+1. **mise cannot complete a Swift install on Omarchy** — see item 20.
+   As of 2026-09-17 the URL bugs are fixed on mise main; the remaining
+   wall is `libncurses.so.6` (Arch ships `libncursesw.so.6` only). A
+   "clean mise swap" on Omarchy still means AUR `swift-bin` at a
+   different path, or a swift.org tarball plus that soname.
 2. **The project-side module cache**: after any toolchain change, building
    in an existing project can die on stale precompiled modules — same
    failure class as item 6. Fix: delete that project's `.build`.
@@ -262,6 +259,28 @@ With `swift.platform=ubuntu24.04` on arm64 the download succeeds but mise's
 runtime verification fails on Arch (`bin/swift` exit 127) and the install
 rolls back — likely a shared-library mismatch in the ubuntu build. Filed upstream:
 https://github.com/jdx/mise/discussions/13289 (fabricated names, ID_LIKE ignored)
-and /13291 (arm64 directory suffix). Practical
-status: no working mise swift install on Omarchy arm64 today; use AUR
-`swift-bin` (which ships the ubi9 build and is the path this repo installs).
+and /13291 (arm64 directory suffix).
+
+**Update 2026-09-17, retest on jwm1 (Omarchy 4.0.1rc2 aarch64).** jdx
+merged [#13293](https://github.com/jdx/mise/pull/13293) (directory suffix)
+and [#13297](https://github.com/jdx/mise/pull/13297) (release-index +
+`ID_LIKE` + UBI fallback). Neither is in a tagged release yet: latest tag
+`v2026.9.10` published 2026-09-16 17:25Z, before both merges. Retested
+with a git build at `533346cc` (crate still reports 2026.9.10, built
+2026-09-17).
+
+Control, system mise 2026.8.8: still 404s on
+`swift-6.3.3-RELEASE-omarchy4.0.1rc2-aarch64.tar.gz`.
+
+Git build: warns `swift 6.3.3 publishes no build for omarchy 4.0.1rc2; using ubi9`,
+then downloads
+`https://download.swift.org/swift-6.3.3-release/ubi9-aarch64/swift-6.3.3-RELEASE/swift-6.3.3-RELEASE-ubi9-aarch64.tar.gz`
+(the `-aarch64` directory 13291 asked for). Extract succeeds. Post-install
+`swift --version` then fails:
+`error while loading shared libraries: libncurses.so.6`. Arch/Omarchy
+ships `libncursesw.so.6` only; `/usr/lib/libncurses.so.6` is absent.
+mise rolls the install back. This is the third issue jdx asked confirmed
+in #13289: the ubi9 artifact does not run on Arch as-is.
+
+Practical status: 13289 and 13291 are fixed on main. `mise install swift`
+on Omarchy arm64 still fails at runtime. Use AUR `swift-bin`.
