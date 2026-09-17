@@ -78,3 +78,13 @@ swift-backtrace … disabling backtracing` appears on the AUR `swift-bin`
 toolchain too.
 
 Scratch left on jwm1: `~/tmp/ubi9-probe/`, `~/.cache/mise-retest/`.
+
+## Upstream, 2026-09-17
+
+- Retest comment on #13289: https://github.com/jdx/mise/discussions/13289#discussioncomment-18482797
+- Retest comment on #13291: https://github.com/jdx/mise/discussions/13291#discussioncomment-18482798
+- New report #13306 (ubi9 exit 127 + config [env] not reaching install verification): https://github.com/jdx/mise/discussions/13306
+
+Shipped here as `install-toolchain.sh --curses-compat` (commit a661c15), verified
+on jwm1: flag reports all sonames resolve, `mise install swift@6.3.3` passes its
+own gate, `mise exec -- swift build` links and the binary prints Hello, world!
