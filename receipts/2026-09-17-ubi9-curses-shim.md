@@ -88,3 +88,36 @@ Scratch left on jwm1: `~/tmp/ubi9-probe/`, `~/.cache/mise-retest/`.
 Shipped here as `install-toolchain.sh --curses-compat` (commit a661c15), verified
 on jwm1: flag reports all sonames resolve, `mise install swift@6.3.3` passes its
 own gate, `mise exec -- swift build` links and the binary prints Hello, world!
+
+## lldb --gui smoke test — PASS (2026-09-18, jw16mbp1-linux / M1 Max)
+
+jwm1 was asleep, so the test ran on a second Omarchy arm64 machine —
+which also proved the fix generalizes beyond the original host.
+
+jw16 differences discovered and handled:
+
+- libxml2 2.15.4 (soname .16): the ubi9 lldb wants libxml2.so.2. A
+  .2->.16 alias RESOLVES CLEAN under ldd -r — no xml-symbol failures,
+  only harmless "no version information available" loader warnings.
+  Caveat recorded: xml-dependent lldb features are unexercised.
+- libpython3.9.so.1.0: genuinely required, no alias possible —
+  _Py_IsFinalizing no longer exists in python 3.14 (real ABI break).
+  Source used: Rocky 9 python3-libs rpm
+  (python3-libs-3.9.25-7.el9_8.aarch64), extracted user-space only,
+  symlinked into the compat dir. jwm1 already had it via swift-bin's
+  python39 dependency.
+
+GUI test under tmux (110x32), lldb -o gui from the extracted ubi9 tree,
+LD_LIBRARY_PATH = curses compat + xml alias:
+
+- curses TUI rendered: menu bar (LLDB F1 | Target F2 | Process F3 |
+  Thread F4 | View F5 | Help F6), Sources and Threads panes.
+- F1 opened the About/Exit dropdown; Down + Enter selected Exit.
+- Clean teardown to the (lldb) prompt; "no target" state correct.
+- Embedded python also verified: `script print(1+1)` -> 2 with
+  PYTHONHOME pointed at the extracted Rocky python tree.
+
+Draw, input handling, and teardown all exercise the narrow->wide curses
+substitution. FINDINGS 21 updated.
+
+Scratch on jw16: ~/tmp/ubi9-gui/ (tarballs + extracted tree, 4 GB).

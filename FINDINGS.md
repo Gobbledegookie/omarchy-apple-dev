@@ -337,9 +337,24 @@ separate mise gap worth reporting — alongside the first, that mise picks
 an artifact it never checks the host can load, and reports a bare
 `exit code 127` instead of naming the missing library.
 
-Residual risk, honestly: the narrow/wide pairing is only exercised here
-through the API lldb actually calls. The curses TUI (`lldb --gui`) is the
-thing to smoke-test before relying on it.
+Residual risk, closed 2026-09-18: the curses TUI itself was the remaining
+unknown and it PASSES. On jw16 (M1 Max, Omarchy arm64) the ubi9 lldb ran
+`gui` under the aliases: full chrome rendered (menu bar, Sources/Threads
+panes), F1 opened the dropdown menu, arrow+Enter selection worked, and
+Exit returned cleanly to the `(lldb)` prompt. Draw, input, and teardown
+all run through the wide libraries.
+
+Two host-package notes from that machine, distinct from the ncurses
+shim: current Arch ships libxml2 `.so.16` (2.15) so the ubi9 lldb also
+needs a `libxml2.so.2` alias — empirically clean (`ldd -r` resolves, no
+xml-symbol failures; loader prints harmless "no version information"
+warnings) but xml-dependent lldb features are unexercised. And it needs
+a REAL `libpython3.9.so.1.0` — no alias works there (`_Py_IsFinalizing`
+is gone from python 3.14; genuine ABI break). On this install python39
+is already present via swift-bin's dependency chain; machines without it
+can copy `libpython3.9.so.1.0` from the Rocky/Alma 9 `python3-libs` rpm
+into the compat directory.
+
 
 This does not change what this repo installs. AUR `swift-bin` already did
 the same reconciliation properly at package level — its `swift` links
