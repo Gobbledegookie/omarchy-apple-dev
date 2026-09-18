@@ -121,3 +121,22 @@ Draw, input handling, and teardown all exercise the narrow->wide curses
 substitution. FINDINGS 21 updated.
 
 Scratch on jw16: ~/tmp/ubi9-gui/ (tarballs + extracted tree, 4 GB).
+
+## jdx shipped all four fixes; verified on a second host (2026-09-18)
+
+mise main (b467f28c, v2026.9.11-dev) built and run on jw16mbp1-linux
+(M1 Max, Omarchy arm64 — lacks all three sonames):
+
+- Bare install now fails in 15.5s naming everything at once:
+  `this swift build needs shared libraries missing from this host:
+  libform.so.6, libncurses.so.6, libpanel.so.6` (#13319 + #13315).
+- `install_env = { LD_LIBRARY_PATH = "{{env.HOME}}/…` renders and reaches
+  the install verification (#13314); install passes.
+- Runtime via `[env]` works; `swift build` + binary run green
+  (Build complete! 1.35s / Hello, world!).
+- jw16 extras: libxml2.so.2 alias (to .so.16) needed for
+  swift-package/swift-build; real libpython3.9.so.1.0 (Rocky 9 rpm)
+  needed for lldb. Added to the compat dir on that host.
+
+Verification comment posted:
+https://github.com/jdx/mise/discussions/13306#discussioncomment-18501815

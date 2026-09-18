@@ -330,12 +330,34 @@ swift` lists 6.3.3, `lldb --version` reports 21.0.0, and
 `mise exec swift@6.3.3 -- swift build` builds a SwiftPM executable in
 1.47 s.
 
-`LD_LIBRARY_PATH` must be in the **shell**. Setting it in `mise.toml`
-`[env]` is not enough: the post-extract verification child does not get
-config env, so the install still dies with exit 127. That is a second,
-separate mise gap worth reporting — alongside the first, that mise picks
-an artifact it never checks the host can load, and reports a bare
-`exit code 127` instead of naming the missing library.
+`LD_LIBRARY_PATH` must reach the install subprocess. Two supported ways on
+mise main (b467f28c, 2026-09-18, all four fixes merged and live-verified on
+a second Omarchy arm64 host): the shell export shown above, or the tool
+option jdx named as the supported knob —
+
+```toml
+[tools]
+swift = { version = "6.3.3", install_env = { LD_LIBRARY_PATH = "{{env.HOME}}/.local/lib/curses-narrow-compat" } }
+[env]
+LD_LIBRARY_PATH = "{{env.HOME}}/.local/lib/curses-narrow-compat"
+```
+
+`install_env` covers the install-time verification (its values now render
+templates, mise #13314); `[env]` covers runtime exec. `[env]` alone was
+never applied to install subprocesses — by design, since `[env]` may depend
+on tools that are not installed yet. Bare installs now fail with every
+missing soname named at once (`this swift build needs shared libraries
+missing from this host: libform.so.6, libncurses.so.6, libpanel.so.6`,
+mise #13315/#13319) instead of a bare exit 127. Not in a tagged mise
+release yet; main only.
+
+Two more host notes from the second machine: current Arch also needs
+`libxml2.so.2` aliased to `.so.16` for `swift-package`/`swift-build`
+(resolves clean under `ldd -r`; xml-heavy lldb features unexercised), and
+`lldb` needs a real `libpython3.9.so.1.0` — genuinely not aliasable
+(`_Py_IsFinalizing` no longer exists in python 3.14); copy it from the
+Rocky/Alma 9 `python3-libs` rpm if absent.
+
 
 Residual risk, closed 2026-09-18: the curses TUI itself was the remaining
 unknown and it PASSES. On jw16 (M1 Max, Omarchy arm64) the ubi9 lldb ran

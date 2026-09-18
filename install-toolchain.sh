@@ -105,14 +105,26 @@ curses_compat() {
 
   cat <<EOF
 
-Put the directory on the loader path in your SHELL before installing:
+Put the directory on the loader path for both the install and runtime:
+
+Shell (simplest — works everywhere):
 
   export LD_LIBRARY_PATH="$CURSES_COMPAT_DIR\${LD_LIBRARY_PATH:+:\$LD_LIBRARY_PATH}"
   mise install swift@6.3.3
 
-It must be the shell environment. mise does not apply mise.toml [env] to the
-post-extract "swift --version" check, so the install still fails exit 127
-after re-downloading the whole toolchain.
+Or mise.toml (mise main, 2026-09-18: install_env renders templates now):
+
+  [tools]
+  swift = { version = "6.3.3", install_env = { LD_LIBRARY_PATH = "{{env.HOME}}/$CURSES_COMPAT_DIR" } }
+  [env]
+  LD_LIBRARY_PATH = "{{env.HOME}}/$CURSES_COMPAT_DIR"
+
+install_env covers the install-time check; [env] covers mise exec.
+Plain mise.toml [env] alone never reaches the install subprocess by design.
+
+On current Arch the toolchain also needs libxml2.so.2 aliased to
+libxml2.so.16 (same directory) and a real libpython3.9.so.1.0 for lldb —
+see FINDINGS.md item 21.
 
 This repo's own install path (AUR swift-bin) does not need any of this; the
 package links the wide libraries directly. FINDINGS.md item 15 still applies:
