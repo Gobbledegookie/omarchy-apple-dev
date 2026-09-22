@@ -126,6 +126,11 @@ Plug the iPhone in, tap Trust when prompted, then:
 ./device-run.sh
 ```
 
+Running Omarchy through Try Omarchy on Windows? Use
+[TRYOMARCHY-WINDOWS-USB.md](TRYOMARCHY-WINDOWS-USB.md) to pass the iPhone into
+the VM with `usbipd-win`; that path is known to work with `usbmuxd` and
+`pymobiledevice3`.
+
 Wireless deploy is **blocked on iOS 26** for Linux-only setups, tested
 exhaustively (FINDINGS.md 17): iOS gives each host its own encrypted
 RemotePairing tunnel and offers no way for a Linux host to claim one — a Mac
