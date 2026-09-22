@@ -84,6 +84,100 @@ From an `xtool` project directory:
 /path/to/omarchy-apple-dev/device-run.sh
 ```
 
+## Larger app installs
+
+Small apps may install successfully while larger apps hang during install when
+the iPhone is connected through `usbipd-win`. When this happens, `usbmuxd` can
+log:
+
+```text
+device_control_input: ERROR (on device): asyncReadComplete, message was too large (65536 bytes, max = 65535)
+device_control_input: Got unhandled payload type 4
+```
+
+Build a patched `usbmuxd` inside Omarchy with a USB/IP-safe mux size below the
+rejected transfer boundary. The change is intentionally small:
+
+```c
+/* src/usb.h */
+#define USBIPD_SAFE_MUX_SIZE 65535
+#define USB_MTU USBIPD_SAFE_MUX_SIZE
+```
+
+```c
+/* src/device.c */
+#define DEV_MRU USBIPD_SAFE_MUX_SIZE
+#define CONN_OUTBUF_SIZE USBIPD_SAFE_MUX_SIZE
+```
+
+Example build using `usbmuxd` 1.1.1:
+
+```bash
+NOCONFIGURE=1 ./autogen.sh
+./configure --prefix=/usr --sysconfdir=/etc --localstatedir=/var --sbindir=/usr/bin
+make
+make check
+```
+
+If building from distro packaging, apply the distro compatibility patches before
+the USB/IP-safe size change.
+
+Install the patched binary alongside the distro binary instead of replacing the
+package-owned file:
+
+```bash
+sudo install -Dm755 src/usbmuxd /usr/local/sbin/usbmuxd-usbipd-safe
+```
+
+Add a systemd drop-in:
+
+```bash
+sudo mkdir -p /etc/systemd/system/usbmuxd.service.d
+sudo tee /etc/systemd/system/usbmuxd.service.d/10-usbipd-safe.conf >/dev/null <<'EOF'
+[Service]
+ExecStart=
+ExecStart=/usr/local/sbin/usbmuxd-usbipd-safe --user usbmux --systemd
+EOF
+```
+
+Restart `usbmuxd`:
+
+```bash
+sudo systemctl daemon-reload
+sudo systemctl restart usbmuxd.service
+```
+
+Confirm systemd is using the patched binary:
+
+```bash
+systemctl status usbmuxd.service --no-pager
+systemctl cat usbmuxd.service
+```
+
+Confirm the iPhone is still visible and paired:
+
+```bash
+~/pymobile3-venv/bin/pymobiledevice3 usbmux list
+~/pymobile3-venv/bin/pymobiledevice3 lockdown info >/dev/null && echo paired
+```
+
+Retry the larger deploy, then check fresh logs:
+
+```bash
+journalctl -u usbmuxd --since "5 minutes ago" --no-pager
+```
+
+The expected result is no new `message was too large (65536 bytes, max = 65535)`
+entry and no repeated `Got unhandled payload type 4` messages.
+
+Rollback is just removing the drop-in and restarting the distro service:
+
+```bash
+sudo rm /etc/systemd/system/usbmuxd.service.d/10-usbipd-safe.conf
+sudo systemctl daemon-reload
+sudo systemctl restart usbmuxd.service
+```
+
 ## Troubleshooting
 
 If `lsusb` shows the iPhone but `pymobiledevice3 usbmux list` prints `[]`, check
