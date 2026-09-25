@@ -1,135 +1,107 @@
-# iPhone USB from Try Omarchy on Windows
+# iPhone USB for Try Omarchy on Windows
 
-Try Omarchy runs Omarchy inside a Windows-hosted QEMU VM. For iOS device
-development, the iPhone must be visible inside the Omarchy guest as a real USB
-device so `usbmuxd`, `pymobiledevice3`, and `xtool` can pair with it.
+> [!IMPORTANT]
+> This guide applies only when Omarchy is running inside the Windows virtual
+> machine distributed by [tryomarchy.com](https://tryomarchy.com). It is not
+> needed for a bare-metal Omarchy installation.
 
-The reliable path is `usbipd-win` on Windows plus `usbip` inside Omarchy. Direct
-QEMU `usb-host` passthrough can make `lsusb` show the phone, but `usbmuxd` may
-still fail when it tries to switch the iPhone into its Apple communication
-configuration.
+Complete the main repository setup before following this guide. The steps below
+solve the two VM-specific USB problems that otherwise prevent reliable iPhone
+deployment.
 
-## Windows host
+## Why the VM needs extra setup
 
-Install usbipd-win:
+There are two separate issues:
+
+1. **USB passthrough:** Direct QEMU USB passthrough may make the iPhone appear in
+   `lsusb`, but it does not provide a connection that `usbmuxd` can reliably use.
+   The working transport is `usbipd-win` on the Windows host plus `usbip` in the
+   Omarchy guest.
+2. **Large app transfers:** The stock `usbmuxd` can submit a 65,536-byte mux
+   transfer through that USB/IP connection. The device path accepts at most
+   65,535 bytes, so larger installs can stop after connecting even though small
+   apps work. A small `usbmuxd` patch caps the relevant transfer and buffer sizes
+   at 65,535 bytes.
+
+Both parts are required for a complete setup.
+
+## 1. Share the iPhone from Windows
+
+Open **PowerShell as Administrator** and install
+[usbipd-win](https://github.com/dorssel/usbipd-win):
 
 ```powershell
 winget install --id dorssel.usbipd-win
 ```
 
-Plug in the iPhone, unlock it, and find its USB bus id:
+Connect and unlock the iPhone, then find its `BUSID`:
 
 ```powershell
 usbipd list
 ```
 
-Look for the Apple device, for example:
-
-```text
-4-6    05ac:12a8    Apple, Inc. iPhone    Not shared
-```
-
-Share the device. Replace `4-6` with the bus id printed on your machine:
+Share it, replacing `<BUSID>` with the value shown for the iPhone:
 
 ```powershell
-usbipd bind --busid 4-6 --force
+usbipd bind --busid <BUSID> --force
 ```
 
-Now start Try Omarchy normally. Do not also attach the iPhone through QEMU's USB
-device menu or a QEMU `usb-host` option; usbipd will handle the connection.
+The `--force` option is required on Try Omarchy hosts that have the incompatible
+UsbDk filter installed. Sharing normally persists across restarts. Start Try
+Omarchy normally; do not also attach the iPhone through a QEMU USB option.
 
-## Omarchy guest
+## 2. Install USB/IP in Omarchy
 
-Install the usbip tools and load the virtual USB host controller:
+In the Omarchy VM, install the guest tools and load the virtual USB controller:
 
 ```bash
 sudo pacman -S --needed usbip
 sudo modprobe vhci-hcd
 ```
 
-List the USB devices exported by the Windows host:
+List the devices exported by Windows:
 
 ```bash
 usbip list -r 10.0.2.2
 ```
 
-Attach the iPhone. Use the same bus id from `usbipd list`:
+Attach the iPhone using the `BUSID` shown in that output:
 
 ```bash
-sudo usbip attach -r 10.0.2.2 -b 4-6
+sudo usbip attach -r 10.0.2.2 -b <BUSID>
 ```
 
-The phone may show **Trust This Computer?**. Keep it unlocked, tap **Trust**,
-and enter the passcode.
+Keep the iPhone unlocked. Tap **Trust** and enter the passcode if iOS asks
+whether to trust the computer.
 
-Verify that Omarchy can see and pair with the phone:
+## 3. Install the USB/IP-safe usbmuxd
+
+This repository includes a patch for `usbmuxd` 1.1.1. From the root of this
+repository, install the build dependencies, build the patched daemon, and place
+it alongside the distro-owned binary:
 
 ```bash
-lsusb | grep -i apple
-sudo systemctl restart usbmuxd
-sleep 2
-~/pymobile3-venv/bin/pymobiledevice3 usbmux list
-~/pymobile3-venv/bin/pymobiledevice3 lockdown pair
-~/pymobile3-venv/bin/pymobiledevice3 lockdown info
-```
+sudo pacman -S --needed base-devel git libimobiledevice-glue libplist libusb
 
-`usbmux list` should print a JSON entry for the iPhone with
-`"ConnectionType": "USB"`. After pairing, `lockdown info` should succeed.
+omarchy_apple_dev_dir="$PWD"
+usbmuxd_build_dir="$(mktemp -d)"
 
-## Run an app
+git clone --branch 1.1.1 --depth 1 \
+  https://github.com/libimobiledevice/usbmuxd.git \
+  "$usbmuxd_build_dir/usbmuxd"
 
-From an `xtool` project directory:
+cd "$usbmuxd_build_dir/usbmuxd"
+patch -p1 < "$omarchy_apple_dev_dir/patches/usbmuxd-usbipd-safe.patch"
 
-```bash
-/path/to/omarchy-apple-dev/device-run.sh
-```
-
-## Larger app installs
-
-Small apps may install successfully while larger apps hang during install when
-the iPhone is connected through `usbipd-win`. When this happens, `usbmuxd` can
-log:
-
-```text
-device_control_input: ERROR (on device): asyncReadComplete, message was too large (65536 bytes, max = 65535)
-device_control_input: Got unhandled payload type 4
-```
-
-Build a patched `usbmuxd` inside Omarchy with a USB/IP-safe mux size below the
-rejected transfer boundary. The change is intentionally small:
-
-```c
-/* src/usb.h */
-#define USBIPD_SAFE_MUX_SIZE 65535
-#define USB_MTU USBIPD_SAFE_MUX_SIZE
-```
-
-```c
-/* src/device.c */
-#define DEV_MRU USBIPD_SAFE_MUX_SIZE
-#define CONN_OUTBUF_SIZE USBIPD_SAFE_MUX_SIZE
-```
-
-Example build using `usbmuxd` 1.1.1:
-
-```bash
 NOCONFIGURE=1 ./autogen.sh
 ./configure --prefix=/usr --sysconfdir=/etc --localstatedir=/var --sbindir=/usr/bin
 make
 make check
-```
-
-If building from distro packaging, apply the distro compatibility patches before
-the USB/IP-safe size change.
-
-Install the patched binary alongside the distro binary instead of replacing the
-package-owned file:
-
-```bash
 sudo install -Dm755 src/usbmuxd /usr/local/sbin/usbmuxd-usbipd-safe
 ```
 
-Add a systemd drop-in:
+Configure systemd to use the patched binary without replacing the package-owned
+`/usr/bin/usbmuxd`:
 
 ```bash
 sudo mkdir -p /etc/systemd/system/usbmuxd.service.d
@@ -138,65 +110,54 @@ sudo tee /etc/systemd/system/usbmuxd.service.d/10-usbipd-safe.conf >/dev/null <<
 ExecStart=
 ExecStart=/usr/local/sbin/usbmuxd-usbipd-safe --user usbmux --systemd
 EOF
-```
 
-Restart `usbmuxd`:
-
-```bash
 sudo systemctl daemon-reload
 sudo systemctl restart usbmuxd.service
 ```
 
-Confirm systemd is using the patched binary:
+This installation is persistent and only needs to be completed once.
 
-```bash
-systemctl status usbmuxd.service --no-pager
-systemctl cat usbmuxd.service
-```
+## 4. Pair and verify
 
-Confirm the iPhone is still visible and paired:
+Use the `pymobiledevice3` environment created by `install-toolchain.sh`:
 
 ```bash
 ~/pymobile3-venv/bin/pymobiledevice3 usbmux list
+~/pymobile3-venv/bin/pymobiledevice3 lockdown pair
 ~/pymobile3-venv/bin/pymobiledevice3 lockdown info >/dev/null && echo paired
 ```
 
-Retry the larger deploy, then check fresh logs:
+`usbmux list` should show the iPhone with `"ConnectionType": "USB"`, and the
+last command should print `paired`. Pairing is normally required only once.
+
+You can now deploy from an xtool project with this repository's normal device
+workflow:
 
 ```bash
-journalctl -u usbmuxd --since "5 minutes ago" --no-pager
+/path/to/omarchy-apple-dev/device-run.sh
 ```
 
-The expected result is no new `message was too large (65536 bytes, max = 65535)`
-entry and no repeated `Got unhandled payload type 4` messages.
+## After restarting Windows or the VM
 
-Rollback is just removing the drop-in and restarting the distro service:
+The Windows share and patched `usbmuxd` installation persist. After starting
+Try Omarchy, reconnect the iPhone to the running VM with:
+
+```bash
+sudo modprobe vhci-hcd
+usbip list -r 10.0.2.2
+sudo usbip attach -r 10.0.2.2 -b <BUSID>
+sudo systemctl restart usbmuxd.service
+```
+
+Use the current iPhone `BUSID` printed by `usbip list`; it can change after a
+reboot or when the phone is connected to a different USB port.
+
+## Remove the patched daemon
+
+To return to Omarchy's packaged `usbmuxd`:
 
 ```bash
 sudo rm /etc/systemd/system/usbmuxd.service.d/10-usbipd-safe.conf
 sudo systemctl daemon-reload
 sudo systemctl restart usbmuxd.service
 ```
-
-## Troubleshooting
-
-If `lsusb` shows the iPhone but `pymobiledevice3 usbmux list` prints `[]`, check
-the usbmuxd logs:
-
-```bash
-journalctl -u usbmuxd -n 30 --no-pager
-```
-
-If the log contains an error like this:
-
-```text
-Could not set configuration 4 for device ... LIBUSB_ERROR_OTHER
-```
-
-then the iPhone is visible to Linux but was not attached in a way usbmuxd can
-use. Detach it from the QEMU/Try Omarchy USB menu if attached there, then use
-the usbipd flow above.
-
-If the bus id changes after unplugging the phone, rebooting Windows, or moving
-to a different USB port, run `usbipd list` again on Windows and use the new bus
-id for both `usbipd bind` and `usbip attach`.
